@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>参考音色资产工作台</title>
+  <style>
+    :root { color-scheme: dark; --bg: #10131a; --panel: #191e29; --line: #303847; --text: #eef2f7; --muted: #9da8b8; --accent: #72a7ff; --ok: #73d69b; --warn: #ffcc73; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 28px; background: var(--bg); color: var(--text); font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 1180px; margin: 0 auto; }
+    h1 { margin: 0 0 8px; font-size: 25px; }
+    h2 { margin: 0 0 12px; font-size: 18px; }
+    h3 { margin: 0; font-size: 16px; }
+    p { color: var(--muted); }
+    .intro { margin: 0 0 22px; }
+    .section, .speaker-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin: 16px 0; }
+    .section-title { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+    .section-title span { color: var(--muted); font-size: 12px; font-weight: 400; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); }
+    label.check { flex-direction: row; align-items: center; gap: 8px; padding-top: 26px; }
+    label.check input { width: auto; }
+    input, textarea, select, button { border: 1px solid var(--line); border-radius: 7px; background: #11151d; color: var(--text); font: inherit; padding: 8px 10px; }
+    textarea { min-height: 72px; resize: vertical; }
+    input:focus, textarea:focus, select:focus { outline: 2px solid #4d7fca; outline-offset: 1px; }
+    button { background: #2563b7; border: 0; cursor: pointer; font-weight: 600; padding: 9px 14px; }
+    button:hover { background: #347bd5; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .help { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+    .status { min-height: 22px; margin: 14px 0 0; color: var(--ok); white-space: pre-wrap; }
+    .error { color: #ff8e8e; }
+    .speaker-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+    .speaker-meta { color: var(--muted); font-size: 12px; }
+    .path { color: var(--warn); font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+    .sample { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+    .sample audio, .result audio { width: 100%; }
+    .subsection { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+    .subsection h4 { margin: 0 0 10px; color: var(--accent); }
+    .tts-grid { display: grid; grid-template-columns: 1.3fr .7fr .7fr; gap: 12px; }
+    .tts-wide { grid-column: span 3; }
+    .tts-actions { display: flex; align-items: end; gap: 12px; margin-top: 12px; }
+    .result { margin-top: 13px; color: var(--ok); }
+    .empty { color: var(--muted); padding: 16px 0; }
+    @media (max-width: 800px) { body { padding: 14px; } .grid, .sample, .tts-grid { grid-template-columns: 1fr; } .tts-wide { grid-column: auto; } label.check { padding-top: 0; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>参考音色资产工作台</h1>
+  <p class="intro">先上传音频或视频完成说话人识别、清洁和资产切片；完成后，再对某个说话人单独试音。两条链路分开，识别失败时不会触发 TTS。</p>
+
+  <section class="section">
+    <div class="section-title"><h2>一、识别与资产生成</h2><span>3D-Speaker + Qwen3-ASR</span></div>
+    <form id="analyzeForm">
+      <div class="grid">
+        <label>音频 / 视频文件<input name="file" type="file" accept="audio/*,video/*" required></label>
+        <label>资产输出目录<input name="output_dir" value="F:\\voice"></label>
+        <label>说话人数
+          <input name="speaker_num" type="number" min="0" step="1" value="0">
+          <span class="help">0 = 自动聚类；已知人数时可填写固定人数</span>
+        </label>
+        <label>每个参考样本秒数<input name="sample_seconds" type="number" min="1" max="60" step="1" value="10"></label>
+        <label>降噪强度<input name="noise_reduction" type="number" min="0" max="30" step="1" value="12"><span class="help">0 = 不启用 ffmpeg afftdn</span></label>
+        <label class="check"><input name="trim_leading_silence" type="checkbox">只裁剪开头静音</label>
+      </div>
+      <button type="submit" style="margin-top:14px">开始识别并生成资产</button>
+    </form>
+    <div id="analyzeStatus" class="status"></div>
+  </section>
+
+  <section class="section">
+    <div class="section-title"><h2>二、说话人资产与 TTS 试音</h2><span>CosyVoice3 官方模式</span></div>
+    <div id="speakerList" class="empty">识别完成后，资产会显示在这里。TTS 参数按说话人单独保存。</div>
+  </section>
+</main>
+
+<script>
+  const analyzeForm = document.getElementById('analyzeForm');
+  const analyzeStatus = document.getElementById('analyzeStatus');
+  const speakerList = document.getElementById('speakerList');
+
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function renderSpeakers(speakers) {
+    if (!speakers.length) {
+      speakerList.innerHTML = '<div class="empty">没有返回说话人资产。</div>';
+      return;
+    }
+    speakerList.innerHTML = speakers.map(item => `
+      <article class="speaker-card" data-asset-id="${esc(item.asset_id)}">
+        <div class="speaker-head">
+          <div>
+            <h3>${esc(item.speaker_label)}</h3>
+            <div class="speaker-meta">累计语音 ${Number(item.speaker_speech_duration_sec || 0).toFixed(2)} 秒；参考样本 ${Number(item.sample_duration_sec || 0).toFixed(2)} 秒</div>
+          </div>
+          <div class="path">${esc(item.asset_dir)}</div>
+        </div>
+        <div class="sample">
+          <div><div class="speaker-meta">清洁参考音色</div><audio controls src="${esc(item.sample_url)}"></audio></div>
+          <label>参考台词（Zero-shot 必须准确）<textarea class="reference-text">${esc(item.reference_text || '')}</textarea></label>
+        </div>
+        <div class="subsection">
+          <h4>TTS 试音参数</h4>
+          <div class="tts-grid">
+            <label>模式
+              <select class="mode">
+                <option value="zero_shot">Zero-shot：add_zero_shot_spk + inference_zero_shot</option>
+                <option value="instruct2">Instruct2：inference_instruct2</option>
+              </select>
+            </label>
+            <label>speed（官方参数）<input class="speed" type="number" min="0.1" max="4" step="0.05" value="1"></label>
+            <label>目标时长（秒）<input class="target-duration" type="number" min="0.5" max="120" step="0.5" value="5"></label>
+            <label class="tts-wide">提示指令
+              <textarea class="prompt-instruction">You are a helpful assistant.</textarea>
+              <span class="help">Zero-shot 会按“指令 + &lt;|endofprompt|&gt; + 参考台词”组成官方提示；Instruct2 会自动补结束标记。</span>
+            </label>
+            <label class="tts-wide">要生成的文本<textarea class="tts-text">今天辛苦了，接下来慢一点就好。</textarea></label>
+            <label class="check"><input class="text-frontend" type="checkbox">启用 text_frontend</label>
+            <label class="check"><input class="fit-duration" type="checkbox">严格适配目标时长（后处理）</label>
+          </div>
+          <div class="tts-actions"><button class="generate">生成试音</button><span class="help">默认保持 CosyVoice 自然时长；严格适配会用 ffmpeg 调整语速并补齐 / 裁剪。</span></div>
+          <div class="result"></div>
+        </div>
+      </article>`).join('');
+  }
+
+  analyzeForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = analyzeForm.querySelector('button');
+    button.disabled = true;
+    analyzeStatus.className = 'status';
+    analyzeStatus.textContent = '正在上传并识别。长视频会按完整音轨处理，请等待模型完成。';
+    try {
+      const response = await fetch('/api/analyze', { method: 'POST', body: new FormData(analyzeForm) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || '识别失败');
+      analyzeStatus.textContent = `${data.message}\n清洁音轨：${data.clean_duration_sec} 秒\n输出：${data.asset_root}`;
+      renderSpeakers(data.speakers || []);
+    } catch (error) {
+      analyzeStatus.className = 'status error';
+      analyzeStatus.textContent = error.message || String(error);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  speakerList.addEventListener('click', async event => {
+    const button = event.target.closest('.generate');
+    if (!button) return;
+    const card = button.closest('.speaker-card');
+    const result = card.querySelector('.result');
+    const mode = card.querySelector('.mode').value;
+    const payload = {
+      speaker_asset_id: card.dataset.assetId,
+      text: card.querySelector('.tts-text').value,
+      reference_text: card.querySelector('.reference-text').value,
+      mode,
+      prompt_instruction: card.querySelector('.prompt-instruction').value,
+      speed: Number(card.querySelector('.speed').value),
+      target_duration: Number(card.querySelector('.target-duration').value),
+      text_frontend: card.querySelector('.text-frontend').checked,
+      fit_duration: card.querySelector('.fit-duration').checked
+    };
+    button.disabled = true;
+    result.className = 'result';
+    result.textContent = '正在加载 CosyVoice3 并生成……';
+    try {
+      const response = await fetch('/api/tts/generate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || '试音失败');
+      result.innerHTML = `${esc(data.message)}<br><span class="path">${esc(data.output_path)}</span><br><audio controls autoplay src="${esc(data.output_url)}?t=${Date.now()}"></audio>`;
+    } catch (error) {
+      result.className = 'result error';
+      result.textContent = error.message || String(error);
+    } finally {
+      button.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

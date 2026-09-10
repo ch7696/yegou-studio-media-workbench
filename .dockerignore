@@ -1,0 +1,14 @@
+.git
+.gitignore
+__pycache__
+*.py[cod]
+state
+uploads
+speaker-results
+speaker-work
+speaker-manifests
+*.wav
+*.mp3
+*.mp4
+*.mov
+*.mkv

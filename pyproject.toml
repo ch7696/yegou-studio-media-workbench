@@ -1,0 +1,8 @@
+[project]
+name = "voice-asset-workbench"
+version = "0.1.0"
+description = "Local multi-speaker reference asset and official CosyVoice3 TTS workbench"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 120
