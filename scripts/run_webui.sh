@@ -9,7 +9,7 @@ ASR_DIR="/home/administrator/models/Qwen3-ASR-0.6B"
 DIAR_DIR="/home/administrator/3D-Speaker"
 COSY_DIR="/home/administrator/cosyvoice/CosyVoice"
 CACHE_DIR="$MANAGED_DIR/state/cosyvoice-cache"
-IMAGE="ragflow-cosyvoice-speaker:0.0.1"
+IMAGE="ragflow-cosyvoice-speaker:0.0.2"
 CONTAINER="ragflow-model-speaker-webui"
 PORT="${SPEAKER_WEBUI_PORT:-7866}"
 

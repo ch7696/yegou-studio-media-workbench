@@ -35,18 +35,24 @@ BUILD_IMAGE=1 bash /home/administrator/voice-asset-workbench/scripts/run_webui.s
 
 页面地址：`http://127.0.0.1:7866/`。
 
-直接 TTS 工作台地址：`http://127.0.0.1:7866/tts`。它接收音频或视频，按起点和片段时长抽取一段参考音频，然后直接生成语音；不会调用 3D-Speaker、Qwen3-ASR 或说话人资产流程。Zero-shot 需要手工填写参考台词，Instruct2 只需要填写 `instruct_text`。
+直接 TTS 工作台地址：`http://127.0.0.1:7866/tts`。它接收音频或视频，按起点和片段时长抽取一段参考音频，然后直接生成语音；不会调用 3D-Speaker、Qwen3-ASR 或说话人资产流程。默认的“无参考台词复刻”走官方 `inference_cross_lingual`，Zero-shot 需要手工填写参考台词，Instruct2 只需要填写 `instruct_text`。
 
 ## TTS 参数依据
+
+运行时依赖固定为 CosyVoice 官方要求的 `transformers==4.51.3` 和
+`tokenizers==0.21.4`。不要把工作台升级到 Transformers 4.57 或更高版本；该版本组合在当前
+CosyVoice3 权重上会导致语音生成乱码。
 
 页面只暴露 CosyVoice3 官方 CLI 模板中实际存在的模式和参数：
 
 | 页面参数 | 官方调用 | 说明 |
 | --- | --- | --- |
-| `zero_shot` | `inference_zero_shot(tts_text, prompt_text, prompt_wav, ...)` | 使用参考音频和参考台词复刻音色 |
+| `cross_lingual` | `inference_cross_lingual(tts_text, prompt_wav, ...)` | 不需要参考台词；CosyVoice3 将前置指令和目标文本放在 `tts_text` 中 |
+| `zero_shot` | `inference_zero_shot(tts_text, prompt_text, prompt_wav, ...)` | 官方 3s 极速复刻路径，参考台词必须和参考音频一致 |
 | `instruct2` | `inference_instruct2` | 使用参考音频并传入指令 |
 | `speed` | `speed` | 直接传给 CosyVoice3，默认 `1.0` |
 | `text_frontend` | `text_frontend` | 是否启用文本前端，默认开启（官方函数默认值） |
+| `seed` | `set_all_random_seed` | 官方 WebUI 使用的随机种子，默认 `0` |
 | 严格适配目标时长 | ffmpeg 后处理 | 不是 CosyVoice 参数，默认关闭以保留自然时长 |
 
 CosyVoice3 zero-shot 的提示词和音频按官方示例直接传入 `inference_zero_shot`，组织为：

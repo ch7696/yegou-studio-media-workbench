@@ -102,22 +102,24 @@
         </div>
         <div class="sample">
           <div><div class="speaker-meta">清洁参考音色</div><audio controls src="${esc(item.sample_url)}"></audio></div>
-          <label><span class="reference-label">参考台词（Zero-shot 必须准确）</span><textarea class="reference-text">${esc(item.reference_text || '')}</textarea></label>
+          <label><span class="reference-label">参考台词（当前模式不参与调用）</span><textarea class="reference-text" disabled>${esc(item.reference_text || '')}</textarea></label>
         </div>
         <div class="subsection">
           <h4>TTS 试音参数</h4>
           <div class="tts-grid">
             <label>模式
               <select class="mode">
-                <option value="zero_shot">Zero-shot：inference_zero_shot（直接传 prompt_text + prompt_wav）</option>
+                <option value="cross_lingual">无参考台词复刻：inference_cross_lingual（音频 + 目标文本）</option>
+                <option value="zero_shot">Zero-shot：inference_zero_shot（prompt_text + prompt_wav）</option>
                 <option value="instruct2">Instruct2：inference_instruct2</option>
               </select>
             </label>
-            <label>speed（官方参数）<input class="speed" type="number" min="0.1" max="4" step="0.05" value="1"></label>
+            <label>speed（官方参数）<input class="speed" type="number" min="0.5" max="2" step="0.05" value="1"></label>
             <label>目标时长（秒）<input class="target-duration" type="number" min="0.5" max="120" step="0.5" value="5"></label>
+            <label>随机 seed<input class="seed" type="number" min="0" max="2147483647" step="1" value="0"></label>
             <label class="tts-wide"><span class="instruction-label">CosyVoice3 prompt_text 前缀指令</span>
               <textarea class="prompt-instruction">You are a helpful assistant.</textarea>
-              <span class="help mode-help">Zero-shot：后端按官方模板组成 prompt_text = 指令 + &lt;|endofprompt|&gt; + 参考台词，并把参考音频直接传入 inference_zero_shot。</span>
+              <span class="help mode-help">无参考台词复刻：按官方 CosyVoice3 示例把“指令 + &lt;|endofprompt|&gt; + 目标文本”作为 tts_text，直接调用 inference_cross_lingual。</span>
             </label>
             <label class="tts-wide">要生成的文本<textarea class="tts-text">今天辛苦了，接下来慢一点就好。</textarea></label>
             <label class="check"><input class="text-frontend" type="checkbox" checked>启用 text_frontend（官方默认）</label>
@@ -162,6 +164,7 @@
       mode,
       prompt_instruction: card.querySelector('.prompt-instruction').value,
       speed: Number(card.querySelector('.speed').value),
+      seed: Number(card.querySelector('.seed').value),
       target_duration: Number(card.querySelector('.target-duration').value),
       text_frontend: card.querySelector('.text-frontend').checked,
       fit_duration: card.querySelector('.fit-duration').checked
@@ -186,13 +189,17 @@
   speakerList.addEventListener('change', event => {
     if (!event.target.classList.contains('mode')) return;
     const card = event.target.closest('.speaker-card');
-    const instruct2 = event.target.value === 'instruct2';
-    card.querySelector('.reference-text').disabled = instruct2;
-    card.querySelector('.reference-label').textContent = instruct2 ? '参考台词（Instruct2 不参与调用）' : '参考台词（Zero-shot 必须准确）';
-    card.querySelector('.instruction-label').textContent = instruct2 ? 'CosyVoice3 instruct_text' : 'CosyVoice3 prompt_text 前缀指令';
-    card.querySelector('.mode-help').innerHTML = instruct2
-      ? 'Instruct2：后端按官方模板传入 tts_text、instruct_text、prompt_wav；参考台词不会混入 instruct_text。'
-      : 'Zero-shot：后端按官方模板组成 prompt_text = 指令 + &lt;|endofprompt|&gt; + 参考台词，并把参考音频直接传入 inference_zero_shot。';
+    const selectedMode = event.target.value;
+    const zeroShot = selectedMode === 'zero_shot';
+    const instruct2 = selectedMode === 'instruct2';
+    card.querySelector('.reference-text').disabled = !zeroShot;
+    card.querySelector('.reference-label').textContent = zeroShot ? '参考台词（Zero-shot 必须准确）' : '参考台词（当前模式不参与调用）';
+    card.querySelector('.instruction-label').textContent = instruct2 ? 'CosyVoice3 instruct_text' : 'CosyVoice3 前置指令';
+    card.querySelector('.mode-help').innerHTML = zeroShot
+      ? 'Zero-shot：按官方模板组成 prompt_text = 指令 + &lt;|endofprompt|&gt; + 参考台词，并把参考音频直接传入 inference_zero_shot。'
+      : (instruct2
+        ? 'Instruct2：按官方模板传入 tts_text、instruct_text、prompt_wav；参考台词不会混入。'
+        : '无参考台词复刻：按官方 CosyVoice3 示例把“指令 + &lt;|endofprompt|&gt; + 目标文本”作为 tts_text，直接调用 inference_cross_lingual。');
   });
 </script>
 </body>

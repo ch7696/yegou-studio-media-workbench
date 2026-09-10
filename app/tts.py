@@ -27,7 +27,12 @@ def get_tts() -> Any:
         from cosyvoice.cli.cosyvoice import AutoModel
 
         print(f"加载 CosyVoice3：{MODEL_DIR}", flush=True)
-        TTS_MODEL = AutoModel(model_dir=MODEL_DIR, fp16=True)
+        # Follow the official CosyVoice3 example.  The previous fp16 override
+        # was an assumption made for VRAM usage, but it is not the official
+        # default and can make this model unstable on some CUDA/container
+        # combinations.  The 0.5B model fits the user's 16 GB card at the
+        # official default precision.
+        TTS_MODEL = AutoModel(model_dir=MODEL_DIR)
     return TTS_MODEL
 
 
@@ -43,6 +48,16 @@ def instruction_marker(instruction: str) -> str:
     instruction = str(instruction or "You are a helpful assistant.")
     instruction = instruction.replace("<|endofprompt|>", "").strip()
     return f"{instruction}<|endofprompt|>"
+
+
+def set_seed(seed: int) -> None:
+    """Use the same seed hook as the official CosyVoice WebUI."""
+
+    if COSYVOICE_REPO not in sys.path:
+        sys.path.insert(0, COSYVOICE_REPO)
+    from cosyvoice.utils.common import set_all_random_seed
+
+    set_all_random_seed(int(seed))
 
 
 def _audio_chunks(stream: Iterator[dict[str, Any]], sample_rate: int) -> tuple[torch.Tensor, float]:
@@ -68,21 +83,34 @@ def synthesize(
     speed: float,
     prompt_instruction: str,
     text_frontend: bool,
+    seed: int = 0,
 ) -> tuple[torch.Tensor, float]:
     """Call CosyVoice3 using the exact input shape of each official mode.
 
-    CosyVoice3's official example uses direct prompt audio for both modes. The
+    CosyVoice3's official example uses direct prompt audio for all prompt modes. The
     ``add_zero_shot_spk`` cache shortcut belongs to the CosyVoice2 example and
     is not interchangeable here: this model's 24 kHz frontend needs the
     prompt text/audio on the actual inference call.
     """
 
+    set_seed(seed)
     if mode == "zero_shot":
         if not reference_text.strip():
             raise ValueError("Zero-shot 模式需要参考音频对应的参考台词")
         stream = model.inference_zero_shot(
             text,
             prompt_marker(reference_text, prompt_instruction),
+            str(reference_audio),
+            stream=False,
+            speed=speed,
+            text_frontend=text_frontend,
+        )
+    elif mode == "cross_lingual":
+        # CosyVoice3's official cross-lingual/fine-grained path has no
+        # reference transcript. Its text input carries the required prompt
+        # prefix and the target text together.
+        stream = model.inference_cross_lingual(
+            f"{instruction_marker(prompt_instruction)}{text}",
             str(reference_audio),
             stream=False,
             speed=speed,

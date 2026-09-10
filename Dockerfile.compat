@@ -1,0 +1,10 @@
+# Fast local rebuild on top of the already-built speaker image.  The full
+# Dockerfile is kept for a clean build; this file only corrects the two
+# CosyVoice runtime packages after diagnosing the version mismatch.
+FROM ragflow-cosyvoice-speaker:0.0.1
+
+RUN python3 -m pip install --no-cache-dir --no-deps \
+    transformers==4.51.3 \
+    tokenizers==0.21.4 \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com

@@ -50,7 +50,7 @@ def health() -> dict[str, Any]:
         "ok": True,
         "identification": "3D-Speaker + Qwen3-ASR",
         "tts": "Fun-CosyVoice3-0.5B-2512",
-        "tts_modes": ["zero_shot", "instruct2"],
+        "tts_modes": ["zero_shot", "cross_lingual", "instruct2"],
         "tts_loaded": tts.TTS_MODEL is not None,
     }
 
@@ -106,18 +106,19 @@ def sample(asset_id: str) -> FileResponse:
 async def direct_tts(
     reference_media: UploadFile = File(...),
     output_dir: str = Form("F:\\voice"),
-    mode: str = Form("zero_shot"),
+    mode: str = Form("cross_lingual"),
     reference_text: str = Form(""),
     prompt_instruction: str = Form("You are a helpful assistant."),
     target_text: str = Form(...),
     reference_start: float = Form(0.0),
     reference_seconds: float = Form(10.0),
     noise_reduction: float = Form(0.0),
-    trim_leading_silence: bool = Form(False),
+    trim_leading_silence: bool = Form(True),
     speed: float = Form(1.0),
     text_frontend: bool = Form(True),
     target_duration: float = Form(5.0),
     fit_duration: bool = Form(False),
+    seed: int = Form(0),
 ) -> dict[str, Any]:
     """Direct TTS workbench: media -> prompt clip -> CosyVoice3.
 
@@ -126,7 +127,7 @@ async def direct_tts(
     CosyVoice3's official prompt contains it.
     """
 
-    if mode not in {"zero_shot", "instruct2"}:
+    if mode not in {"zero_shot", "cross_lingual", "instruct2"}:
         raise HTTPException(status_code=400, detail="不支持的 CosyVoice3 模式")
     target_text = str(target_text or "").strip()
     if not target_text:
@@ -144,8 +145,11 @@ async def direct_tts(
         reference_seconds = max(1.0, min(30.0, float(reference_seconds)))
         noise_reduction = max(0.0, min(30.0, float(noise_reduction)))
         target_duration = float(target_duration)
-        if not 0.1 <= speed <= 4.0:
-            raise ValueError("speed 应在 0.1 到 4.0 之间")
+        seed = int(seed)
+        if not 0.5 <= speed <= 2.0:
+            raise ValueError("speed 应在 0.5 到 2.0 之间")
+        if not 0 <= seed <= 2_147_483_647:
+            raise ValueError("seed 超出范围")
         if not 0.5 <= target_duration <= 120.0:
             raise ValueError("目标时长应在 0.5 到 120 秒之间")
     except ValueError as exc:
@@ -197,6 +201,7 @@ async def direct_tts(
                 speed=speed,
                 prompt_instruction=prompt_instruction,
                 text_frontend=text_frontend,
+                seed=seed,
             )
             raw_path = work_root / "原始生成.wav"
             tts.save_audio(raw_path, audio, model.sample_rate)
@@ -226,6 +231,7 @@ async def direct_tts(
             "prompt_instruction": prompt_instruction,
             "target_text": target_text,
             "speed": speed,
+            "seed": seed,
             "text_frontend": text_frontend,
             "fit_duration": fit_duration,
             "target_duration_sec": target_duration,
@@ -303,6 +309,7 @@ def _generate(request: TTSGenerateRequest) -> dict[str, Any]:
                 speed=request.speed,
                 prompt_instruction=request.prompt_instruction,
                 text_frontend=request.text_frontend,
+                seed=request.seed,
             )
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             raw_path = RESULTS / f"{request.speaker_asset_id}__{stamp}__{request.mode}__原始.wav"
@@ -327,6 +334,7 @@ def _generate(request: TTSGenerateRequest) -> dict[str, Any]:
                 "prompt_instruction": request.prompt_instruction,
                 "target_duration_sec": request.target_duration,
                 "speed": request.speed,
+                "seed": request.seed,
                 "text_frontend": request.text_frontend,
                 "fit_duration": request.fit_duration,
                 "raw_duration_sec": round(raw_seconds, 3),

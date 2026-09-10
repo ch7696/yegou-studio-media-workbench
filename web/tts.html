@@ -49,7 +49,7 @@
         <label>参考起点（秒）<input id="reference-start" type="number" min="0" step="0.1" value="0"></label>
         <label>参考片段时长（秒）<input id="reference-seconds" type="number" min="1" max="30" step="0.5" value="10"><span class="help">官方前端上限 30 秒</span></label>
         <label>参考音频降噪<input id="noise-reduction" type="number" min="0" max="30" step="1" value="0"><span class="help">默认 0，保留原始音色</span></label>
-        <label class="check"><input id="trim-leading-silence" type="checkbox">只裁剪开头静音</label>
+        <label class="check"><input id="trim-leading-silence" type="checkbox" checked>自动裁剪开头静音</label>
       </div>
 
       <div class="result">
@@ -57,14 +57,16 @@
         <div class="grid">
           <label>模式
             <select id="mode">
+              <option value="cross_lingual">无参考台词复刻：inference_cross_lingual</option>
               <option value="zero_shot">Zero-shot：tts_text + prompt_text + prompt_wav</option>
               <option value="instruct2">Instruct2：tts_text + instruct_text + prompt_wav</option>
             </select>
           </label>
-          <label>speed<input id="speed" type="number" min="0.1" max="4" step="0.05" value="1"></label>
+          <label>speed<input id="speed" type="number" min="0.5" max="2" step="0.05" value="1"></label>
           <label>目标时长（秒）<input id="target-duration" type="number" min="0.5" max="120" step="0.5" value="5"></label>
-          <label class="wide"><span id="reference-label">参考台词（Zero-shot 必填）</span><textarea id="reference-text" placeholder="填写参考音频中实际说出的台词，尽量准确"></textarea></label>
-          <label class="wide"><span id="instruction-label">prompt_text 前缀指令</span><textarea id="prompt-instruction">You are a helpful assistant.</textarea><span id="instruction-help" class="help">Zero-shot 会按官方模板拼成：指令 + &lt;|endofprompt|&gt; + 参考台词。</span></label>
+          <label>随机 seed<input id="seed" type="number" min="0" max="2147483647" step="1" value="0"><span class="help">官方 WebUI 同样设置随机 seed</span></label>
+          <label class="wide"><span id="reference-label">参考台词（当前模式不需要）</span><textarea id="reference-text" disabled placeholder="Zero-shot 模式填写参考音频中实际说出的台词"></textarea></label>
+          <label class="wide"><span id="instruction-label">CosyVoice3 前置指令</span><textarea id="prompt-instruction">You are a helpful assistant.</textarea><span id="instruction-help" class="help">无参考台词复刻：按官方 CosyVoice3 示例把“指令 + &lt;|endofprompt|&gt; + 目标文本”送入 inference_cross_lingual。</span></label>
           <label class="wide">tts_text：要生成的文本<textarea id="target-text" required>今天辛苦了，接下来慢一点就好。</textarea></label>
           <label class="check"><input id="text-frontend" type="checkbox" checked>启用 text_frontend（官方默认）</label>
           <label class="check"><input id="fit-duration" type="checkbox">严格适配目标时长（后处理）</label>
@@ -100,13 +102,17 @@
   }
 
   function updateMode() {
-    const instruct2 = mode.value === 'instruct2';
-    referenceText.disabled = instruct2;
-    referenceLabel.textContent = instruct2 ? '参考台词（Instruct2 不参与调用）' : '参考台词（Zero-shot 必填）';
-    instructionLabel.textContent = instruct2 ? 'instruct_text' : 'prompt_text 前缀指令';
-    instructionHelp.innerHTML = instruct2
-      ? 'Instruct2 会按官方模板传入：tts_text、instruct_text、prompt_wav；参考台词不会发送。'
-      : 'Zero-shot 会按官方模板拼成：指令 + &lt;|endofprompt|&gt; + 参考台词。';
+    const selectedMode = mode.value;
+    const zeroShot = selectedMode === 'zero_shot';
+    const instruct2 = selectedMode === 'instruct2';
+    referenceText.disabled = !zeroShot;
+    referenceLabel.textContent = zeroShot ? '参考台词（Zero-shot 必填）' : '参考台词（当前模式不需要）';
+    instructionLabel.textContent = zeroShot ? 'prompt_text 前缀指令' : (instruct2 ? 'instruct_text' : 'CosyVoice3 tts_text 前置指令');
+    instructionHelp.innerHTML = zeroShot
+      ? 'Zero-shot 会按官方模板拼成：指令 + &lt;|endofprompt|&gt; + 参考台词。'
+      : (instruct2
+        ? 'Instruct2 会按官方模板传入：tts_text、instruct_text、prompt_wav；参考台词不会发送。'
+        : '无参考台词复刻：把“指令 + &lt;|endofprompt|&gt; + 目标文本”作为 tts_text，直接调用 inference_cross_lingual。');
   }
   mode.addEventListener('change', updateMode);
   updateMode();
@@ -131,6 +137,7 @@
     data.append('noise_reduction', document.getElementById('noise-reduction').value);
     data.append('trim_leading_silence', document.getElementById('trim-leading-silence').checked ? 'true' : 'false');
     data.append('speed', document.getElementById('speed').value);
+    data.append('seed', document.getElementById('seed').value);
     data.append('text_frontend', document.getElementById('text-frontend').checked ? 'true' : 'false');
     data.append('target_duration', document.getElementById('target-duration').value);
     data.append('fit_duration', document.getElementById('fit-duration').checked ? 'true' : 'false');
