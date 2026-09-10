@@ -14,10 +14,20 @@ from fastapi.responses import FileResponse, HTMLResponse
 from . import tts
 from .assets import save_card
 from .audio import fit_audio
-from .config import DEFAULT_OUTPUT, MANIFESTS, RESULTS, UPLOADS, ensure_directories
+from .config import (
+    DEFAULT_OUTPUT,
+    DIRECT_TTS_MANIFESTS,
+    DIRECT_TTS_UPLOADS,
+    DIRECT_TTS_WORK,
+    MANIFESTS,
+    RESULTS,
+    UPLOADS,
+    ensure_directories,
+)
+from .direct_tts import extract_reference
 from .identification import analyze_file
 from .schemas import TTSGenerateRequest
-from .utils import digest, load_manifest, probe, safe_name, to_windows_path
+from .utils import digest, load_manifest, probe, safe_name, save_json, to_windows_path, to_wsl_path
 
 
 ensure_directories()
@@ -27,6 +37,11 @@ app = FastAPI(title="多人参考音色资产工作台")
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return Path("/app/web/index.html").read_text(encoding="utf-8")
+
+
+@app.get("/tts", response_class=HTMLResponse)
+def direct_tts_page() -> str:
+    return Path("/app/web/tts.html").read_text(encoding="utf-8")
 
 
 @app.get("/api/health")
@@ -85,6 +100,180 @@ def sample(asset_id: str) -> FileResponse:
     if not path.exists():
         raise HTTPException(status_code=404, detail="参考样本不存在")
     return FileResponse(path, media_type="audio/wav", filename=path.name)
+
+
+@app.post("/api/tts/direct")
+async def direct_tts(
+    reference_media: UploadFile = File(...),
+    output_dir: str = Form("F:\\voice"),
+    mode: str = Form("zero_shot"),
+    reference_text: str = Form(""),
+    prompt_instruction: str = Form("You are a helpful assistant."),
+    target_text: str = Form(...),
+    reference_start: float = Form(0.0),
+    reference_seconds: float = Form(10.0),
+    noise_reduction: float = Form(0.0),
+    trim_leading_silence: bool = Form(False),
+    speed: float = Form(1.0),
+    text_frontend: bool = Form(True),
+    target_duration: float = Form(5.0),
+    fit_duration: bool = Form(False),
+) -> dict[str, Any]:
+    """Direct TTS workbench: media -> prompt clip -> CosyVoice3.
+
+    This endpoint intentionally does not call diarization or ASR. In
+    zero-shot mode the reference transcript is supplied by the user because
+    CosyVoice3's official prompt contains it.
+    """
+
+    if mode not in {"zero_shot", "instruct2"}:
+        raise HTTPException(status_code=400, detail="不支持的 CosyVoice3 模式")
+    target_text = str(target_text or "").strip()
+    if not target_text:
+        raise HTTPException(status_code=400, detail="目标文本不能为空")
+    if len(target_text) > 2000:
+        raise HTTPException(status_code=400, detail="目标文本不能超过 2000 个字符")
+    reference_text = str(reference_text or "").strip()
+    prompt_instruction = str(prompt_instruction or "You are a helpful assistant.").strip()
+    if mode == "zero_shot" and not reference_text:
+        raise HTTPException(status_code=400, detail="Zero-shot 模式需要手工填写参考音频台词")
+
+    try:
+        speed = float(speed)
+        reference_start = max(0.0, float(reference_start))
+        reference_seconds = max(1.0, min(30.0, float(reference_seconds)))
+        noise_reduction = max(0.0, min(30.0, float(noise_reduction)))
+        target_duration = float(target_duration)
+        if not 0.1 <= speed <= 4.0:
+            raise ValueError("speed 应在 0.1 到 4.0 之间")
+        if not 0.5 <= target_duration <= 120.0:
+            raise ValueError("目标时长应在 0.5 到 120 秒之间")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    original = safe_name(reference_media.filename or "未命名参考媒体", 120)
+    suffix = Path(original).suffix.lower() or ".bin"
+    job_id = uuid.uuid4().hex
+    source = DIRECT_TTS_UPLOADS / f"{job_id}{suffix}"
+    with source.open("wb") as stream:
+        while True:
+            chunk = await reference_media.read(1024 * 1024)
+            if not chunk:
+                break
+            stream.write(chunk)
+
+    try:
+        target_root = to_wsl_path(output_dir or str(DEFAULT_OUTPUT))
+        target_root.mkdir(parents=True, exist_ok=True)
+        output_root = target_root / f"{safe_name(Path(original).stem, 60)}__直接TTS__{job_id[:8]}"
+        output_root.mkdir(parents=True, exist_ok=True)
+        work_root = DIRECT_TTS_WORK / job_id
+        reference_audio = work_root / "参考音频.wav"
+        actual_reference_seconds = extract_reference(
+            source,
+            reference_audio,
+            start_seconds=reference_start,
+            max_seconds=reference_seconds,
+            noise_reduction=noise_reduction,
+            trim_leading_silence=trim_leading_silence,
+        )
+        exported_reference = output_root / "参考音频.wav"
+        shutil.copy2(reference_audio, exported_reference)
+
+        quality_warning = None
+        if mode == "zero_shot":
+            prompt_text = tts.prompt_marker(reference_text, prompt_instruction)
+            if len(target_text) < 0.5 * len(prompt_text):
+                quality_warning = "官方前端提示：目标文本相对参考台词过短，可能影响音色和韵律。"
+
+        with tts.TTS_LOCK:
+            model = tts.get_tts()
+            audio, raw_seconds = tts.synthesize(
+                model,
+                mode=mode,
+                text=target_text,
+                reference_text=reference_text,
+                reference_audio=reference_audio,
+                speed=speed,
+                prompt_instruction=prompt_instruction,
+                text_frontend=text_frontend,
+            )
+            raw_path = work_root / "原始生成.wav"
+            tts.save_audio(raw_path, audio, model.sample_rate)
+            if fit_duration:
+                fitted = work_root / "严格适配时长.wav"
+                _, final_seconds = fit_audio(raw_path, fitted, target_duration)
+                duration_label = f"目标{target_duration:g}秒"
+            else:
+                fitted = raw_path
+                final_seconds = raw_seconds
+                duration_label = "自然时长"
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        exported = output_root / f"试音__{safe_name(target_text, 48)}__{mode}__{duration_label}__{stamp}.wav"
+        shutil.copy2(fitted, exported)
+        manifest = {
+            "schema_version": "direct-tts-job/v1",
+            "job_id": job_id,
+            "source_filename": original,
+            "source_path": str(source),
+            "source_sha256": digest(source),
+            "reference_audio": str(exported_reference),
+            "reference_start_sec": reference_start,
+            "reference_duration_sec": round(actual_reference_seconds, 3),
+            "reference_text": reference_text,
+            "mode": mode,
+            "prompt_instruction": prompt_instruction,
+            "target_text": target_text,
+            "speed": speed,
+            "text_frontend": text_frontend,
+            "fit_duration": fit_duration,
+            "target_duration_sec": target_duration,
+            "raw_duration_sec": round(raw_seconds, 3),
+            "final_duration_sec": round(final_seconds, 3),
+            "output_root": str(output_root),
+            "output": str(exported),
+            "identification": False,
+            "asr": False,
+            "diarization": False,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        save_json(DIRECT_TTS_MANIFESTS / f"{job_id}.json", manifest)
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "message": f"直接 TTS 完成：自然时长 {raw_seconds:.2f}s",
+            "output_path": to_windows_path(exported),
+            "reference_path": to_windows_path(exported_reference),
+            "output_url": f"/api/tts/direct/{job_id}/output",
+            "reference_url": f"/api/tts/direct/{job_id}/reference",
+            "mode": mode,
+            "raw_duration_sec": round(raw_seconds, 3),
+            "final_duration_sec": round(final_seconds, 3),
+            "warning": quality_warning,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"直接 TTS 失败：{exc}") from exc
+
+
+def _direct_job_file(job_id: str, field: str) -> FileResponse:
+    manifest = load_manifest(DIRECT_TTS_MANIFESTS, job_id)
+    path = Path(manifest[field])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="直接 TTS 文件不存在")
+    return FileResponse(path, media_type="audio/wav", filename=path.name)
+
+
+@app.get("/api/tts/direct/{job_id}/output")
+def direct_tts_output(job_id: str) -> FileResponse:
+    return _direct_job_file(job_id, "output")
+
+
+@app.get("/api/tts/direct/{job_id}/reference")
+def direct_tts_reference(job_id: str) -> FileResponse:
+    return _direct_job_file(job_id, "reference_audio")
 
 
 def _generate(request: TTSGenerateRequest) -> dict[str, Any]:

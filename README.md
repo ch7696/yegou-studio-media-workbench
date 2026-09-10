@@ -35,6 +35,8 @@ BUILD_IMAGE=1 bash /home/administrator/voice-asset-workbench/scripts/run_webui.s
 
 页面地址：`http://127.0.0.1:7866/`。
 
+直接 TTS 工作台地址：`http://127.0.0.1:7866/tts`。它接收音频或视频，按起点和片段时长抽取一段参考音频，然后直接生成语音；不会调用 3D-Speaker、Qwen3-ASR 或说话人资产流程。Zero-shot 需要手工填写参考台词，Instruct2 只需要填写 `instruct_text`。
+
 ## TTS 参数依据
 
 页面只暴露 CosyVoice3 官方 CLI 模板中实际存在的模式和参数：
@@ -62,8 +64,10 @@ CosyVoice2 示例中的 `add_zero_shot_spk` 缓存调用没有套用到 CosyVoic
 
 - `POST /api/analyze`：只做识别和资产生成。
 - `POST /api/tts/generate`：只对已有说话人资产生成试音。
+- `POST /api/tts/direct`：上传参考音频或视频，直接生成 TTS。
 - `GET /api/speaker/{asset_id}/sample`：获取清洁参考样本。
 - `GET /api/speaker/{asset_id}/latest`：获取最近一次试音。
+- `GET /api/tts/direct/{job_id}/output`：获取直接 TTS 结果。
 - `GET /api/health`：查看服务和 TTS 是否已懒加载。
 
 每个资产目录包含清洁参考音色、`资产卡片.md`、`说话人分析.json` 或试音结果；原始上传文件和任务状态保留在外部 state 目录，不会被 Git 跟踪。

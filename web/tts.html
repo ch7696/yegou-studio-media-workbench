@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CosyVoice3 直接 TTS 工作台</title>
+  <style>
+    :root { color-scheme: dark; --bg:#10131a; --panel:#191e29; --line:#303847; --text:#eef2f7; --muted:#9da8b8; --accent:#72a7ff; --ok:#73d69b; --warn:#ffcc73; }
+    * { box-sizing: border-box; }
+    body { margin:0; padding:28px; background:var(--bg); color:var(--text); font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { max-width:980px; margin:0 auto; }
+    h1 { margin:0 0 8px; font-size:25px; }
+    h2 { margin:0 0 12px; font-size:18px; }
+    p { color:var(--muted); }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; margin:16px 0; }
+    .title { display:flex; align-items:baseline; gap:10px; }
+    .title span, .help, .meta { color:var(--muted); font-size:12px; }
+    .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+    label { display:flex; flex-direction:column; gap:5px; color:var(--muted); }
+    label.wide { grid-column:span 3; }
+    label.check { flex-direction:row; align-items:center; gap:8px; padding-top:25px; }
+    label.check input { width:auto; }
+    input, textarea, select, button { border:1px solid var(--line); border-radius:7px; background:#11151d; color:var(--text); font:inherit; padding:8px 10px; }
+    textarea { min-height:82px; resize:vertical; }
+    input:focus, textarea:focus, select:focus { outline:2px solid #4d7fca; outline-offset:1px; }
+    button { background:#2563b7; border:0; cursor:pointer; font-weight:600; padding:9px 14px; }
+    button:hover { background:#347bd5; }
+    button:disabled { opacity:.55; cursor:wait; }
+    .status { min-height:24px; margin-top:14px; color:var(--ok); white-space:pre-wrap; }
+    .error { color:#ff8e8e; }
+    .warn { color:var(--warn); }
+    .path { color:var(--warn); font-family:ui-monospace,monospace; font-size:12px; word-break:break-all; }
+    audio { width:100%; margin-top:10px; }
+    .result { border-top:1px solid var(--line); margin-top:18px; padding-top:16px; }
+    @media (max-width:760px) { body{padding:14px;} .grid{grid-template-columns:1fr;} label.wide{grid-column:auto;} label.check{padding-top:0;} }
+  </style>
+</head>
+<body>
+<main>
+  <h1>CosyVoice3 直接 TTS 工作台</h1>
+  <p>上传单人参考音频或视频，系统只抽取参考音频并直接调用 TTS。这里不会做说话人识别、聚类或 ASR；Zero-shot 的参考台词需要你手工填写。</p>
+
+  <section class="panel">
+    <div class="title"><h2>参考媒体</h2><span>音频 / 视频 → prompt_wav</span></div>
+    <form id="ttsForm">
+      <div class="grid">
+        <label class="wide">参考音频或视频<input id="reference-media" type="file" accept="audio/*,video/*" required></label>
+        <label>输出目录<input id="output-dir" value="F:\\voice"></label>
+        <label>参考起点（秒）<input id="reference-start" type="number" min="0" step="0.1" value="0"></label>
+        <label>参考片段时长（秒）<input id="reference-seconds" type="number" min="1" max="30" step="0.5" value="10"><span class="help">官方前端上限 30 秒</span></label>
+        <label>参考音频降噪<input id="noise-reduction" type="number" min="0" max="30" step="1" value="0"><span class="help">默认 0，保留原始音色</span></label>
+        <label class="check"><input id="trim-leading-silence" type="checkbox">只裁剪开头静音</label>
+      </div>
+
+      <div class="result">
+        <div class="title"><h2>TTS 输入</h2><span>按官方模式分别传参</span></div>
+        <div class="grid">
+          <label>模式
+            <select id="mode">
+              <option value="zero_shot">Zero-shot：tts_text + prompt_text + prompt_wav</option>
+              <option value="instruct2">Instruct2：tts_text + instruct_text + prompt_wav</option>
+            </select>
+          </label>
+          <label>speed<input id="speed" type="number" min="0.1" max="4" step="0.05" value="1"></label>
+          <label>目标时长（秒）<input id="target-duration" type="number" min="0.5" max="120" step="0.5" value="5"></label>
+          <label class="wide"><span id="reference-label">参考台词（Zero-shot 必填）</span><textarea id="reference-text" placeholder="填写参考音频中实际说出的台词，尽量准确"></textarea></label>
+          <label class="wide"><span id="instruction-label">prompt_text 前缀指令</span><textarea id="prompt-instruction">You are a helpful assistant.</textarea><span id="instruction-help" class="help">Zero-shot 会按官方模板拼成：指令 + &lt;|endofprompt|&gt; + 参考台词。</span></label>
+          <label class="wide">tts_text：要生成的文本<textarea id="target-text" required>今天辛苦了，接下来慢一点就好。</textarea></label>
+          <label class="check"><input id="text-frontend" type="checkbox" checked>启用 text_frontend（官方默认）</label>
+          <label class="check"><input id="fit-duration" type="checkbox">严格适配目标时长（后处理）</label>
+        </div>
+      </div>
+      <button id="submit" type="submit" style="margin-top:14px">直接生成 TTS</button>
+    </form>
+    <div id="status" class="status"></div>
+  </section>
+
+  <section id="result-panel" class="panel" hidden>
+    <div class="title"><h2>生成结果</h2><span id="result-mode"></span></div>
+    <div id="result-message" class="status"></div>
+    <div class="meta">输出文件</div><div id="output-path" class="path"></div>
+    <audio id="output-audio" controls></audio>
+    <div class="meta" style="margin-top:14px">本次实际送入 CosyVoice 的参考音频</div><div id="reference-path" class="path"></div>
+    <audio id="reference-audio" controls></audio>
+  </section>
+</main>
+
+<script>
+  const form = document.getElementById('ttsForm');
+  const mode = document.getElementById('mode');
+  const referenceText = document.getElementById('reference-text');
+  const referenceLabel = document.getElementById('reference-label');
+  const instructionLabel = document.getElementById('instruction-label');
+  const instructionHelp = document.getElementById('instruction-help');
+  const status = document.getElementById('status');
+  const resultPanel = document.getElementById('result-panel');
+
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function updateMode() {
+    const instruct2 = mode.value === 'instruct2';
+    referenceText.disabled = instruct2;
+    referenceLabel.textContent = instruct2 ? '参考台词（Instruct2 不参与调用）' : '参考台词（Zero-shot 必填）';
+    instructionLabel.textContent = instruct2 ? 'instruct_text' : 'prompt_text 前缀指令';
+    instructionHelp.innerHTML = instruct2
+      ? 'Instruct2 会按官方模板传入：tts_text、instruct_text、prompt_wav；参考台词不会发送。'
+      : 'Zero-shot 会按官方模板拼成：指令 + &lt;|endofprompt|&gt; + 参考台词。';
+  }
+  mode.addEventListener('change', updateMode);
+  updateMode();
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const file = document.getElementById('reference-media').files[0];
+    if (!file) return;
+    const button = document.getElementById('submit');
+    button.disabled = true;
+    status.className = 'status';
+    status.textContent = '正在抽取参考音频并生成……不会执行说话人识别或 ASR。';
+    const data = new FormData();
+    data.append('reference_media', file);
+    data.append('output_dir', document.getElementById('output-dir').value);
+    data.append('mode', mode.value);
+    data.append('reference_text', mode.value === 'zero_shot' ? referenceText.value : '');
+    data.append('prompt_instruction', document.getElementById('prompt-instruction').value);
+    data.append('target_text', document.getElementById('target-text').value);
+    data.append('reference_start', document.getElementById('reference-start').value);
+    data.append('reference_seconds', document.getElementById('reference-seconds').value);
+    data.append('noise_reduction', document.getElementById('noise-reduction').value);
+    data.append('trim_leading_silence', document.getElementById('trim-leading-silence').checked ? 'true' : 'false');
+    data.append('speed', document.getElementById('speed').value);
+    data.append('text_frontend', document.getElementById('text-frontend').checked ? 'true' : 'false');
+    data.append('target_duration', document.getElementById('target-duration').value);
+    data.append('fit_duration', document.getElementById('fit-duration').checked ? 'true' : 'false');
+    try {
+      const response = await fetch('/api/tts/direct', { method:'POST', body:data });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || '直接 TTS 失败');
+      status.textContent = result.message;
+      resultPanel.hidden = false;
+      document.getElementById('result-mode').textContent = result.mode;
+      const warning = result.warning ? `\n${result.warning}` : '';
+      document.getElementById('result-message').textContent = `${result.message}${warning}`;
+      document.getElementById('result-message').className = result.warning ? 'status warn' : 'status';
+      document.getElementById('output-path').textContent = result.output_path;
+      document.getElementById('reference-path').textContent = result.reference_path;
+      document.getElementById('output-audio').src = `${result.output_url}?t=${Date.now()}`;
+      document.getElementById('reference-audio').src = `${result.reference_url}?t=${Date.now()}`;
+    } catch (error) {
+      status.className = 'status error';
+      status.textContent = error.message || String(error);
+    } finally {
+      button.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
