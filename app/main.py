@@ -96,17 +96,21 @@ def _generate(request: TTSGenerateRequest) -> dict[str, Any]:
     if request.mode == "zero_shot" and not reference_text:
         raise HTTPException(status_code=400, detail="Zero-shot 模式需要参考台词，请填写参考音频的实际台词")
 
+    quality_warning = None
+    if request.mode == "zero_shot":
+        prompt_text = tts.prompt_marker(reference_text, request.prompt_instruction)
+        if len(request.text.strip()) < 0.5 * len(prompt_text):
+            quality_warning = "官方前端提示：目标文本相对参考台词过短，可能影响音色和韵律；可换更短的参考样本或提供更长的目标文本。"
+
     with tts.TTS_LOCK:
         try:
             model = tts.get_tts()
-            speaker_id = f"webui_{request.speaker_asset_id}"
             audio, raw_seconds = tts.synthesize(
                 model,
                 mode=request.mode,
                 text=request.text.strip(),
                 reference_text=reference_text,
                 reference_audio=reference_audio,
-                speaker_id=speaker_id,
                 speed=request.speed,
                 prompt_instruction=request.prompt_instruction,
                 text_frontend=request.text_frontend,
@@ -160,6 +164,7 @@ def _generate(request: TTSGenerateRequest) -> dict[str, Any]:
                 "output_path": to_windows_path(exported),
                 "mode": request.mode,
                 "final_duration_sec": round(final_seconds, 3),
+                "warning": quality_warning,
             }
         except HTTPException:
             raise

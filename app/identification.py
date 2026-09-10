@@ -43,7 +43,8 @@ def analyze_file(
     target_root.mkdir(parents=True, exist_ok=True)
     root = target_root / f"{safe_name(Path(original_filename).stem, 60)}__说话人资产__{source_id[:8]}"
     root.mkdir(parents=True, exist_ok=True)
-    limit = max(1.0, min(60.0, float(sample_seconds)))
+    # CosyVoice's official frontend rejects prompt audio longer than 30 s.
+    limit = max(1.0, min(30.0, float(sample_seconds)))
     source_sha256 = digest(source)
     drafts: list[dict[str, Any]] = []
     samples: list[Path] = []

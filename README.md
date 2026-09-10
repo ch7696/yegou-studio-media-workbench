@@ -41,14 +41,18 @@ BUILD_IMAGE=1 bash /home/administrator/voice-asset-workbench/scripts/run_webui.s
 
 | 页面参数 | 官方调用 | 说明 |
 | --- | --- | --- |
-| `zero_shot` | `add_zero_shot_spk` + `inference_zero_shot` | 使用参考音频和参考台词复刻音色 |
+| `zero_shot` | `inference_zero_shot(tts_text, prompt_text, prompt_wav, ...)` | 使用参考音频和参考台词复刻音色 |
 | `instruct2` | `inference_instruct2` | 使用参考音频并传入指令 |
 | `speed` | `speed` | 直接传给 CosyVoice3，默认 `1.0` |
-| `text_frontend` | `text_frontend` | 是否启用文本前端，默认关闭 |
+| `text_frontend` | `text_frontend` | 是否启用文本前端，默认开启（官方函数默认值） |
 | 严格适配目标时长 | ffmpeg 后处理 | 不是 CosyVoice 参数，默认关闭以保留自然时长 |
 
-CosyVoice3 zero-shot 的提示词按官方示例组织为：
+CosyVoice3 zero-shot 的提示词和音频按官方示例直接传入 `inference_zero_shot`，组织为：
 `You are a helpful assistant.<|endofprompt|>参考台词`。
+
+CosyVoice2 示例中的 `add_zero_shot_spk` 缓存调用没有套用到 CosyVoice3，因为当前 Fun-CosyVoice3 模型是 24 kHz 前端，官方 CosyVoice3 示例直接传入 `prompt_text` 和 `prompt_wav`。
+
+参考音频样本限制为 30 秒以内，这是 [官方前端](https://github.com/FunAudioLLM/CosyVoice/blob/main/cosyvoice/cli/frontend.py) 提取 speech token 时的硬限制。Zero-shot 目标文本如果明显短于参考台词，官方前端也会给出质量警告；页面会把这个警告显示出来。
 
 官方 CLI 没有向这个接口暴露 `temperature`、`top_p` 等采样参数，因此页面没有凭经验添加这些字段。依据是 [CosyVoice 官方 example.py](https://github.com/FunAudioLLM/CosyVoice/blob/main/example.py) 和 [CosyVoice 官方 CLI 实现](https://github.com/FunAudioLLM/CosyVoice/blob/main/cosyvoice/cli/cosyvoice.py)。
 

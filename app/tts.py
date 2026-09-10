@@ -40,9 +40,8 @@ def prompt_marker(reference_text: str, instruction: str = "You are a helpful ass
 
 
 def instruction_marker(instruction: str) -> str:
-    instruction = str(instruction or "You are a helpful assistant.").strip()
-    if "<|endofprompt|>" in instruction:
-        return instruction
+    instruction = str(instruction or "You are a helpful assistant.")
+    instruction = instruction.replace("<|endofprompt|>", "").strip()
     return f"{instruction}<|endofprompt|>"
 
 
@@ -66,26 +65,25 @@ def synthesize(
     text: str,
     reference_text: str,
     reference_audio: Path,
-    speaker_id: str,
     speed: float,
     prompt_instruction: str,
     text_frontend: bool,
 ) -> tuple[torch.Tensor, float]:
-    """Call only the generation modes and arguments exposed by CosyVoice3."""
+    """Call CosyVoice3 using the exact input shape of each official mode.
+
+    CosyVoice3's official example uses direct prompt audio for both modes. The
+    ``add_zero_shot_spk`` cache shortcut belongs to the CosyVoice2 example and
+    is not interchangeable here: this model's 24 kHz frontend needs the
+    prompt text/audio on the actual inference call.
+    """
 
     if mode == "zero_shot":
         if not reference_text.strip():
             raise ValueError("Zero-shot 模式需要参考音频对应的参考台词")
-        model.add_zero_shot_spk(
-            prompt_marker(reference_text, prompt_instruction),
-            str(reference_audio),
-            speaker_id,
-        )
         stream = model.inference_zero_shot(
             text,
-            "",
-            "",
-            zero_shot_spk_id=speaker_id,
+            prompt_marker(reference_text, prompt_instruction),
+            str(reference_audio),
             stream=False,
             speed=speed,
             text_frontend=text_frontend,

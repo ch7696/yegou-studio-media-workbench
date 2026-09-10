@@ -41,6 +41,7 @@
     .tts-wide { grid-column: span 3; }
     .tts-actions { display: flex; align-items: end; gap: 12px; margin-top: 12px; }
     .result { margin-top: 13px; color: var(--ok); }
+    .quality-warning { color: var(--warn); }
     .empty { color: var(--muted); padding: 16px 0; }
     @media (max-width: 800px) { body { padding: 14px; } .grid, .sample, .tts-grid { grid-template-columns: 1fr; } .tts-wide { grid-column: auto; } label.check { padding-top: 0; } }
   </style>
@@ -60,7 +61,7 @@
           <input name="speaker_num" type="number" min="0" step="1" value="0">
           <span class="help">0 = 自动聚类；已知人数时可填写固定人数</span>
         </label>
-        <label>每个参考样本秒数<input name="sample_seconds" type="number" min="1" max="60" step="1" value="10"></label>
+        <label>每个参考样本秒数<input name="sample_seconds" type="number" min="1" max="30" step="1" value="10"><span class="help">CosyVoice 官方前端的参考音频上限为 30 秒</span></label>
         <label>降噪强度<input name="noise_reduction" type="number" min="0" max="30" step="1" value="12"><span class="help">0 = 不启用 ffmpeg afftdn</span></label>
         <label class="check"><input name="trim_leading_silence" type="checkbox">只裁剪开头静音</label>
       </div>
@@ -100,25 +101,25 @@
         </div>
         <div class="sample">
           <div><div class="speaker-meta">清洁参考音色</div><audio controls src="${esc(item.sample_url)}"></audio></div>
-          <label>参考台词（Zero-shot 必须准确）<textarea class="reference-text">${esc(item.reference_text || '')}</textarea></label>
+          <label><span class="reference-label">参考台词（Zero-shot 必须准确）</span><textarea class="reference-text">${esc(item.reference_text || '')}</textarea></label>
         </div>
         <div class="subsection">
           <h4>TTS 试音参数</h4>
           <div class="tts-grid">
             <label>模式
               <select class="mode">
-                <option value="zero_shot">Zero-shot：add_zero_shot_spk + inference_zero_shot</option>
+                <option value="zero_shot">Zero-shot：inference_zero_shot（直接传 prompt_text + prompt_wav）</option>
                 <option value="instruct2">Instruct2：inference_instruct2</option>
               </select>
             </label>
             <label>speed（官方参数）<input class="speed" type="number" min="0.1" max="4" step="0.05" value="1"></label>
             <label>目标时长（秒）<input class="target-duration" type="number" min="0.5" max="120" step="0.5" value="5"></label>
-            <label class="tts-wide">提示指令
+            <label class="tts-wide"><span class="instruction-label">CosyVoice3 prompt_text 前缀指令</span>
               <textarea class="prompt-instruction">You are a helpful assistant.</textarea>
-              <span class="help">Zero-shot 会按“指令 + &lt;|endofprompt|&gt; + 参考台词”组成官方提示；Instruct2 会自动补结束标记。</span>
+              <span class="help mode-help">Zero-shot：后端按官方模板组成 prompt_text = 指令 + &lt;|endofprompt|&gt; + 参考台词，并把参考音频直接传入 inference_zero_shot。</span>
             </label>
             <label class="tts-wide">要生成的文本<textarea class="tts-text">今天辛苦了，接下来慢一点就好。</textarea></label>
-            <label class="check"><input class="text-frontend" type="checkbox">启用 text_frontend</label>
+            <label class="check"><input class="text-frontend" type="checkbox" checked>启用 text_frontend（官方默认）</label>
             <label class="check"><input class="fit-duration" type="checkbox">严格适配目标时长（后处理）</label>
           </div>
           <div class="tts-actions"><button class="generate">生成试音</button><span class="help">默认保持 CosyVoice 自然时长；严格适配会用 ffmpeg 调整语速并补齐 / 裁剪。</span></div>
@@ -171,13 +172,26 @@
       const response = await fetch('/api/tts/generate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || '试音失败');
-      result.innerHTML = `${esc(data.message)}<br><span class="path">${esc(data.output_path)}</span><br><audio controls autoplay src="${esc(data.output_url)}?t=${Date.now()}"></audio>`;
+      const warning = data.warning ? `<br><span class="quality-warning">${esc(data.warning)}</span>` : '';
+      result.innerHTML = `${esc(data.message)}${warning}<br><span class="path">${esc(data.output_path)}</span><br><audio controls autoplay src="${esc(data.output_url)}?t=${Date.now()}"></audio>`;
     } catch (error) {
       result.className = 'result error';
       result.textContent = error.message || String(error);
     } finally {
       button.disabled = false;
     }
+  });
+
+  speakerList.addEventListener('change', event => {
+    if (!event.target.classList.contains('mode')) return;
+    const card = event.target.closest('.speaker-card');
+    const instruct2 = event.target.value === 'instruct2';
+    card.querySelector('.reference-text').disabled = instruct2;
+    card.querySelector('.reference-label').textContent = instruct2 ? '参考台词（Instruct2 不参与调用）' : '参考台词（Zero-shot 必须准确）';
+    card.querySelector('.instruction-label').textContent = instruct2 ? 'CosyVoice3 instruct_text' : 'CosyVoice3 prompt_text 前缀指令';
+    card.querySelector('.mode-help').innerHTML = instruct2
+      ? 'Instruct2：后端按官方模板传入 tts_text、instruct_text、prompt_wav；参考台词不会混入 instruct_text。'
+      : 'Zero-shot：后端按官方模板组成 prompt_text = 指令 + &lt;|endofprompt|&gt; + 参考台词，并把参考音频直接传入 inference_zero_shot。';
   });
 </script>
 </body>
