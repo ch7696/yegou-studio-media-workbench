@@ -13,6 +13,7 @@
     h2 { margin: 0 0 12px; font-size: 18px; }
     h3 { margin: 0; font-size: 16px; }
     p { color: var(--muted); }
+    a { color: var(--accent); }
     .intro { margin: 0 0 22px; }
     .section, .speaker-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin: 16px 0; }
     .section-title { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
@@ -49,7 +50,7 @@
 <body>
 <main>
   <h1>参考音色资产工作台</h1>
-  <p class="intro">先上传音频或视频完成说话人识别、清洁和资产切片；完成后，再对某个说话人单独试音。两条链路分开，识别失败时不会触发 TTS。</p>
+  <p class="intro">先上传音频或视频完成说话人识别、清洁和资产切片；完成后，再对某个说话人单独试音。两条链路分开，识别失败时不会触发 TTS。需要直接上传参考音频或视频时，打开 <a href="/tts">独立 TTS 工作台</a>。</p>
 
   <section class="section">
     <div class="section-title"><h2>一、识别与资产生成</h2><span>3D-Speaker + Qwen3-ASR</span></div>
