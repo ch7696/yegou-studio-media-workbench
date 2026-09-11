@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import os
 import re
 import threading
 from pathlib import Path
@@ -11,6 +12,7 @@ from .config import ASR_DIR
 
 
 ASR_LOCK = threading.Lock()
+ASR_SERVICE_URL = os.getenv("ASR_SERVICE_URL", "").strip().rstrip("/")
 
 
 def _unload(model: object) -> None:
@@ -21,10 +23,12 @@ def _unload(model: object) -> None:
 
 
 def transcribe(paths: list[Path]) -> list[str]:
-    """Transcribe short speaker samples through the official Qwen3-ASR API."""
+    """Transcribe through the isolated Qwen3-ASR service or local fallback."""
 
     if not paths:
         return []
+    if ASR_SERVICE_URL:
+        return _transcribe_remote(paths)
     with ASR_LOCK:
         model = None
         try:
@@ -54,3 +58,27 @@ def transcribe(paths: list[Path]) -> list[str]:
         finally:
             if model is not None:
                 _unload(model)
+
+
+def _transcribe_remote(paths: list[Path]) -> list[str]:
+    """Call Qwen3-ASR without importing it into the CosyVoice process."""
+
+    try:
+        import requests
+
+        output: list[str] = []
+        for path in paths:
+            with path.open("rb") as stream:
+                response = requests.post(
+                    f"{ASR_SERVICE_URL}/transcribe",
+                    files={"audio": (path.name, stream, "audio/wav")},
+                    data={"language": "Chinese"},
+                    timeout=600,
+                )
+            response.raise_for_status()
+            value = response.json().get("text", "")
+            output.append(re.sub(r"\s+", " ", str(value or "")).strip())
+        return output
+    except Exception as exc:
+        print(f"远程 Qwen3-ASR 服务失败：{exc}", flush=True)
+        return [""] * len(paths)

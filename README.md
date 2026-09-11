@@ -35,7 +35,11 @@ BUILD_IMAGE=1 bash /home/administrator/voice-asset-workbench/scripts/run_webui.s
 
 页面地址：`http://127.0.0.1:7866/`。
 
-直接 TTS 工作台地址：`http://127.0.0.1:7866/tts`。它接收音频或视频，按起点和片段时长抽取一段参考音频，然后直接生成语音；不会调用 3D-Speaker、Qwen3-ASR 或说话人资产流程。默认的“无参考台词复刻”走官方 `inference_cross_lingual`，Zero-shot 需要手工填写参考台词，Instruct2 只需要填写 `instruct_text`。
+音视频重新配音工作台地址：`http://127.0.0.1:7866/studio`，用于媒体预览、时间轴选段、单段试音和整段批量重配音流程设计。
+
+独立 Qwen3-ASR 服务使用本机端口 `18763`，由工作台内部调用；日常操作只需要打开上面的 7866 页面。
+
+直接 TTS 工作台地址：`http://127.0.0.1:7866/tts`。它接收音频或视频，按起点和片段时长抽取一段参考音频，然后直接生成语音；不会调用 3D-Speaker 或说话人聚类。默认的“无参考台词复刻”走官方 `inference_cross_lingual`；Zero-shot 会自动调用 Qwen3-ASR 填入参考台词，用户可以修改后再生成；Instruct2 只需要填写 `instruct_text`。
 
 ## TTS 参数依据
 

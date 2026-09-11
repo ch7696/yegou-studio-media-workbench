@@ -12,8 +12,11 @@ CACHE_DIR="$MANAGED_DIR/state/cosyvoice-cache"
 IMAGE="ragflow-cosyvoice-speaker:0.0.2"
 CONTAINER="ragflow-model-speaker-webui"
 PORT="${SPEAKER_WEBUI_PORT:-7866}"
+ASR_API_PORT="${ASR_API_PORT:-18763}"
 
 mkdir -p "$STATE_DIR" "$CACHE_DIR"
+
+bash "$PROJECT_DIR/scripts/run_asr_api.sh"
 
 if [[ "${BUILD_IMAGE:-0}" == "1" ]] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   docker build -t "$IMAGE" -f "$PROJECT_DIR/Dockerfile" "$PROJECT_DIR"
@@ -27,10 +30,12 @@ exec docker run -d \
   --ipc=host \
   --shm-size=4g \
   -p "$PORT:7865" \
+  --add-host=host.docker.internal:host-gateway \
   -w /app \
   -e TRANSFORMERS_OFFLINE=1 \
   -e HF_HUB_OFFLINE=1 \
   -e PYTHONUNBUFFERED=1 \
+  -e ASR_SERVICE_URL="http://host.docker.internal:${ASR_API_PORT}" \
   -e VOICE_STATE_DIR=/state \
   -e VOICE_DEFAULT_OUTPUT=/mnt/f/voice \
   -e COSYVOICE_MODEL_DIR=/models/Fun-CosyVoice3-0.5B \

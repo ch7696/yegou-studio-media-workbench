@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>音视频重新配音工作台</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d1118;
+      --panel: #171d28;
+      --panel-2: #111722;
+      --line: #2b3545;
+      --text: #f1f5fb;
+      --muted: #9eabbc;
+      --blue: #78aaff;
+      --blue-2: #2c68bd;
+      --cyan: #55d4da;
+      --green: #75d99c;
+      --yellow: #ffd17a;
+      --red: #ff9292;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at 20% -20%, #20345a 0, transparent 34rem), var(--bg); color: var(--text); font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    button, input, textarea, select { font: inherit; }
+    button, input, textarea, select { border: 1px solid var(--line); border-radius: 8px; background: #0e141e; color: var(--text); padding: 9px 11px; }
+    button { cursor: pointer; font-weight: 650; background: var(--blue-2); border: 0; }
+    button:hover { background: #397edb; }
+    button.secondary { background: #29374d; }
+    button.secondary:hover { background: #3b506d; }
+    button.ghost { background: transparent; border: 1px solid var(--line); }
+    button.danger { background: #6d3641; }
+    button:disabled { cursor: wait; opacity: .55; }
+    input:focus, textarea:focus, select:focus { outline: 2px solid #4e82ca; outline-offset: 1px; }
+    textarea { resize: vertical; min-height: 78px; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .shell { max-width: 1440px; margin: 0 auto; padding: 22px 28px 44px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; gap:18px; margin-bottom:26px; }
+    .brand { display:flex; align-items:center; gap:11px; font-weight:750; font-size:17px; }
+    .brand-mark { width:30px; height:30px; display:grid; place-items:center; border-radius:9px; background:linear-gradient(135deg,#5c9bff,#52d3d5); color:#0a1422; font-weight:900; }
+    .nav { display:flex; gap:14px; color:var(--muted); font-size:13px; }
+    .hero { display:flex; justify-content:space-between; gap:28px; align-items:flex-end; margin-bottom:22px; }
+    h1 { margin:0 0 8px; font-size:30px; letter-spacing:-.02em; }
+    h2 { margin:0; font-size:18px; }
+    h3 { margin:0; font-size:15px; }
+    p { margin:6px 0 0; color:var(--muted); }
+    .hero-copy { max-width:760px; }
+    .badge-row, .chips, .actions, .inline { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .badge, .chip { border:1px solid var(--line); background:#172335; color:#c9d6e7; border-radius:999px; padding:4px 9px; font-size:12px; }
+    .badge.ok, .chip.ok { color:var(--green); }
+    .badge.warn, .chip.warn { color:var(--yellow); }
+    .steps { min-width:510px; display:grid; grid-template-columns:repeat(5,1fr); gap:5px; }
+    .step { padding:10px 8px; text-align:center; color:var(--muted); background:#121a26; border:1px solid var(--line); font-size:12px; }
+    .step:first-child { border-radius:8px 0 0 8px; }
+    .step:last-child { border-radius:0 8px 8px 0; }
+    .step.active { color:var(--text); background:#1e3c69; border-color:#4e80c4; }
+    .layout { display:grid; grid-template-columns:minmax(0, 1.55fr) minmax(360px, .75fr); gap:16px; align-items:start; }
+    .stack { display:grid; gap:16px; }
+    .card { background:linear-gradient(180deg, rgba(25,32,44,.98), rgba(20,26,37,.98)); border:1px solid var(--line); border-radius:13px; padding:18px; box-shadow:0 12px 30px rgba(0,0,0,.14); }
+    .card-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:14px; }
+    .eyebrow { color:var(--cyan); font-size:11px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
+    .sub { color:var(--muted); font-size:12px; }
+    .drop { border:1px dashed #5273a3; border-radius:11px; padding:22px; text-align:center; background:rgba(37,72,120,.12); transition:.15s; }
+    .drop.drag { border-color:var(--cyan); background:rgba(52,161,169,.16); }
+    .drop strong { display:block; font-size:16px; margin-bottom:4px; }
+    .drop input { display:block; margin:13px auto 0; max-width:100%; }
+    .media-wrap { margin-top:14px; border:1px solid var(--line); border-radius:10px; background:#090d14; overflow:hidden; min-height:120px; display:grid; place-items:center; }
+    video { display:block; width:100%; max-height:390px; background:#05070b; }
+    audio { width:100%; }
+    .media-empty { color:var(--muted); padding:44px 16px; text-align:center; }
+    .meta-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin-top:12px; }
+    .meta-box { background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:9px 10px; }
+    .meta-box span { display:block; color:var(--muted); font-size:11px; }
+    .meta-box strong { display:block; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .toolbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; }
+    .wavebox { position:relative; margin:14px 0 7px; border:1px solid var(--line); border-radius:8px; background:#0c121c; overflow:hidden; }
+    canvas { display:block; width:100%; height:124px; }
+    .selection { position:absolute; top:0; bottom:0; left:0; width:0; border:2px solid var(--cyan); background:rgba(70,198,205,.16); pointer-events:none; }
+    .ruler { display:flex; justify-content:space-between; color:var(--muted); font:11px ui-monospace,monospace; }
+    .range-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+    .range-grid label, .field { display:flex; flex-direction:column; gap:5px; color:var(--muted); }
+    .field.wide { grid-column:1/-1; }
+    .help { color:var(--muted); font-size:12px; }
+    .help strong { color:#d7e2f0; }
+    .timeline-actions { margin-top:12px; display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    .segments { display:grid; gap:8px; margin-top:14px; }
+    .segment { display:grid; grid-template-columns:82px 1fr auto; gap:10px; align-items:center; border:1px solid var(--line); border-radius:9px; padding:9px 10px; background:#111925; cursor:pointer; }
+    .segment:hover, .segment.selected { border-color:#5d9bf1; background:#182b46; }
+    .segment-time { color:var(--cyan); font:12px ui-monospace,monospace; }
+    .segment-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .segment-speaker { color:var(--muted); font-size:11px; }
+    .empty { color:var(--muted); padding:16px 0 3px; text-align:center; }
+    .lanes { display:grid; gap:9px; }
+    .lane { display:grid; grid-template-columns:110px 1fr auto; gap:10px; align-items:center; padding:10px; background:#111925; border:1px solid var(--line); border-radius:8px; }
+    .lane-name { font-weight:650; }
+    .lane-bar { height:14px; border-radius:99px; background:repeating-linear-gradient(90deg,#2b4c70 0 17px,#20354e 17px 27px); }
+    .lane-bar.bg { background:repeating-linear-gradient(90deg,#4b3d60 0 17px,#332d49 17px 27px); }
+    .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .term { border-bottom:1px dotted var(--muted); cursor:help; }
+    .notice { padding:11px 12px; border-left:3px solid var(--yellow); border-radius:6px; background:rgba(255,209,122,.08); color:#d9c99e; font-size:12px; }
+    .notice.ok { border-left-color:var(--green); background:rgba(117,217,156,.07); color:#bfe2ca; }
+    .voice-picker { display:grid; grid-template-columns:1fr auto; gap:8px; }
+    .preview-box { margin-top:13px; padding-top:13px; border-top:1px solid var(--line); }
+    .preview-box audio { margin-top:7px; }
+    .batch { margin-top:16px; }
+    .batch-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:stretch; }
+    .batch-option { padding:15px; background:#111925; border:1px solid var(--line); border-radius:10px; }
+    .batch-option p { min-height:44px; }
+    .footer-note { margin-top:18px; color:var(--muted); font-size:12px; text-align:center; }
+    .status { min-height:21px; margin-top:10px; color:var(--green); white-space:pre-wrap; font-size:12px; }
+    .status.error { color:var(--red); }
+    .status.warn { color:var(--yellow); }
+    @media (max-width: 1060px) { .hero { display:block; } .steps { margin-top:18px; min-width:0; } .layout { grid-template-columns:1fr; } }
+    @media (max-width: 680px) { .shell { padding:15px 12px 30px; } h1 { font-size:24px; } .nav { display:none; } .meta-grid, .form-grid, .range-grid, .batch-grid { grid-template-columns:1fr; } .field.wide { grid-column:auto; } .lane { grid-template-columns:1fr; } .segment { grid-template-columns:72px 1fr; } .segment button { grid-column:2; justify-self:start; } }
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">声</span><span>本地音视频工作台</span></div>
+    <nav class="nav"><a href="/">声音资产</a><a href="/tts">单段试音</a><a href="/studio">重新配音</a></nav>
+  </header>
+
+  <section class="hero">
+    <div class="hero-copy">
+      <div class="eyebrow">DUBBING STUDIO</div>
+      <h1>音视频重新配音工作台</h1>
+      <p>上传视频后，先看时间轴和声音，再选择一段人声试听新的台词。确认效果后，可以把整段人声按时间戳分段重新生成。</p>
+      <div class="badge-row" style="margin-top:12px"><span class="badge ok">原视频保留</span><span class="badge ok">音色与台词分开</span><span class="badge warn">批量配音需先分析音轨</span></div>
+    </div>
+    <div class="steps" aria-label="工作流程">
+      <div class="step active">1<br>导入媒体</div><div class="step">2<br>处理声音</div><div class="step">3<br>选择片段</div><div class="step">4<br>重新配音</div><div class="step">5<br>导出</div>
+    </div>
+  </section>
+
+  <section class="layout">
+    <div class="stack">
+      <section class="card">
+        <div class="card-head"><div><div class="eyebrow">01 / MEDIA</div><h2>导入视频或音频</h2><p>先选一份原始素材，页面会在浏览器里显示预览和时长。</p></div><span class="chip ok">本地文件</span></div>
+        <div id="drop" class="drop">
+          <strong>把视频或音频拖到这里</strong>
+          <span class="help">支持常见视频、音频格式；原始文件不会被覆盖</span>
+          <input id="media-file" type="file" accept="audio/*,video/*">
+        </div>
+        <div class="media-wrap">
+          <div id="media-empty" class="media-empty">选择文件后，这里会出现视频预览</div>
+          <video id="video-preview" controls hidden></video>
+          <audio id="audio-preview" controls hidden></audio>
+        </div>
+        <div class="meta-grid">
+          <div class="meta-box"><span>文件</span><strong id="file-name">未选择</strong></div>
+          <div class="meta-box"><span>时长</span><strong id="file-duration">--:--</strong></div>
+          <div class="meta-box"><span>输出位置</span><strong>F:\\voice</strong></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><div><div class="eyebrow">02 / TIMELINE</div><h2>可视时间轴与音轨</h2><p>拖动起止时间选择要分析或重新配音的片段。</p></div><span class="chip">时间戳</span></div>
+        <div class="toolbar">
+          <div class="chips"><span class="chip ok">人声轨</span><span class="chip" style="color:#d8a9ff">环境声轨</span></div>
+          <div class="actions"><button id="analyze-btn" class="secondary" type="button">分析当前片段</button><button id="select-all-btn" class="ghost" type="button">选择整段</button></div>
+        </div>
+        <div class="wavebox"><canvas id="waveform" width="1100" height="124"></canvas><div id="selection" class="selection"></div></div>
+        <div class="ruler"><span>00:00</span><span id="ruler-middle">00:00</span><span id="ruler-end">00:00</span></div>
+        <div class="range-grid">
+          <label>片段开始（秒）<input id="segment-start" type="number" min="0" step="0.1" value="0"></label>
+          <label>片段结束（秒）<input id="segment-end" type="number" min="0.1" step="0.1" value="10"></label>
+        </div>
+        <div class="timeline-actions"><span id="timeline-status" class="help">还没有分析结果；可以先选择一段片段。</span><span class="help">后端会保存原始时间戳，方便回写视频。</span></div>
+        <div id="segments" class="segments"><div class="empty">分析后，识别出的说话片段会按时间戳显示在这里。</div></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><div><div class="eyebrow">03 / AUDIO LANES</div><h2>人声与环境声</h2><p>重新配音时保留环境声，让画面不会变成“只有干声音”。</p></div><button id="separate-btn" type="button">一键分离人声 / 环境声</button></div>
+        <div class="lanes">
+          <div class="lane"><span class="lane-name">人声轨</span><span class="lane-bar"></span><span class="chip warn">待处理</span></div>
+          <div class="lane"><span class="lane-name">环境声轨</span><span class="lane-bar bg"></span><span class="chip warn">待处理</span></div>
+        </div>
+        <div id="separate-status" class="status">分离按钮是后续音频分离模型的统一入口；当前页面先完成时间轴和 TTS 试音流程。</div>
+      </section>
+    </div>
+
+    <aside class="stack">
+      <section class="card">
+        <div class="card-head"><div><div class="eyebrow">QUICK GUIDE</div><h2>第一次使用看这里</h2></div><span class="chip ok">小白模式</span></div>
+        <div class="notice ok">先选文件，再点“分析当前片段”。Zero-shot 会自动把参考音频中的台词填到下面，确认无误后再生成。</div>
+        <details open style="margin-top:13px"><summary><strong>这些词是什么意思？</strong></summary>
+          <p class="help"><span class="term" title="从参考音频中提取说话人的音色和说话方式">参考音色</span>：告诉模型“用谁的声音说”。</p>
+          <p class="help"><span class="term" title="Qwen3-ASR 自动听写参考音频中的内容">参考台词</span>：Zero-shot 的语义提示，页面自动填写，也可以手工修正。</p>
+          <p class="help"><span class="term" title="按开始和结束时间生成一段音频">时间戳</span>：决定这句话在原视频中出现的位置。</p>
+          <p class="help"><span class="term" title="让生成语音变快或变慢，官方范围为 0.5 到 2.0">speed</span>：只影响语速，不建议一开始大幅调整。</p>
+        </details>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><div><div class="eyebrow">04 / VOICE</div><h2>选中的片段重新配音</h2><p>先做一段试听，满意后再批量处理。</p></div><span id="selected-chip" class="chip">未选择</span></div>
+        <div class="form-grid">
+          <label class="field wide">参考音频 / 视频
+            <div class="voice-picker"><input id="voice-file-name" value="使用左侧媒体的选中片段" readonly><button id="use-media-btn" class="secondary" type="button">使用当前媒体</button></div>
+            <span class="help">参考音频只用于提取音色；原视频仍然保留。</span>
+          </label>
+          <label class="field wide">复刻方式
+            <select id="tts-mode">
+              <option value="zero_shot">Zero-shot：自动识别参考台词（推荐高质量）</option>
+              <option value="cross_lingual">无需参考台词：只使用参考声音</option>
+              <option value="instruct2">Instruct2：使用表达指令（实验）</option>
+            </select>
+            <span class="help">Zero-shot 会把“参考音频 + 参考台词”一起交给模型；台词已自动填入。</span>
+          </label>
+          <label class="field wide"><span class="inline" style="justify-content:space-between"><span>参考台词（自动识别，可修改）</span><button id="transcript-btn" class="secondary" type="button">重新识别</button></span>
+            <textarea id="reference-text" placeholder="选择媒体后，Zero-shot 会自动填入这里"></textarea>
+            <span id="transcript-status" class="help">参考台词必须和参考音频实际说出的内容一致。</span>
+          </label>
+          <label class="field wide">新的台词（要生成的内容）<textarea id="target-text" placeholder="输入这段视频里你希望重新说的话">今天辛苦了，接下来慢一点就好。</textarea></label>
+          <label class="field">speed<input id="tts-speed" type="number" min="0.5" max="2" step="0.05" value="1"><span class="help">官方范围 0.5–2</span></label>
+          <label class="field">随机 seed<input id="tts-seed" type="number" min="0" max="2147483647" step="1" value="0"><span class="help">相同 seed 便于复现</span></label>
+          <label class="field wide"><span class="inline"><input id="fit-duration" type="checkbox" style="width:auto"> 严格适配选中片段时长</span><span class="help">勾选后会用后处理调整长度；建议先试听自然时长。</span></label>
+        </div>
+        <div class="actions" style="margin-top:13px"><button id="preview-btn" type="button">生成这段试音</button><button id="batch-btn" class="secondary" type="button">准备整段批量重配音</button></div>
+        <div id="tts-status" class="status">还没有生成试音。</div>
+        <div id="preview-box" class="preview-box" hidden><div class="sub">新配音试听</div><audio id="tts-preview" controls></audio><div id="tts-output-path" class="help" style="margin-top:7px;word-break:break-all"></div></div>
+      </section>
+    </aside>
+  </section>
+
+  <section class="card batch">
+    <div class="card-head"><div><div class="eyebrow">05 / BATCH DUBBING</div><h2>整段人声批量重新配音</h2><p>最终流程会把识别出的台词分段、逐段生成，再按原时间戳合回视频。</p></div><span class="chip warn">流程入口</span></div>
+    <div class="batch-grid">
+      <div class="batch-option"><h3>按句分段</h3><p>自动识别每句话的开始和结束时间；每句可以单独修改台词并试听。</p><button id="sentence-batch-btn" class="secondary" type="button">按句准备</button></div>
+      <div class="batch-option"><h3>整段人声</h3><p>绑定一个参考音色，批量生成所有台词，再保留环境声并导出完整视频。</p><button id="full-batch-btn" class="secondary" type="button">整段准备</button></div>
+    </div>
+    <div id="batch-status" class="status">当前页面先完成片段选择和试音；分离模型、全量时间戳 ASR 和视频回写将在同一工作台继续接入。</div>
+  </section>
+  <div class="footer-note">所有结果按项目目录保存到 F:\\voice；原始文件不会被覆盖。</div>
+</main>
+
+<script>
+  const mediaInput = document.getElementById('media-file');
+  const drop = document.getElementById('drop');
+  const video = document.getElementById('video-preview');
+  const audio = document.getElementById('audio-preview');
+  const empty = document.getElementById('media-empty');
+  const fileName = document.getElementById('file-name');
+  const durationLabel = document.getElementById('file-duration');
+  const startInput = document.getElementById('segment-start');
+  const endInput = document.getElementById('segment-end');
+  const selection = document.getElementById('selection');
+  const waveform = document.getElementById('waveform');
+  const timelineStatus = document.getElementById('timeline-status');
+  const referenceText = document.getElementById('reference-text');
+  const transcriptStatus = document.getElementById('transcript-status');
+  const ttsMode = document.getElementById('tts-mode');
+  let sourceFile = null;
+  let sourceUrl = '';
+  let mediaDuration = 0;
+  let segments = [];
+
+  function esc(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function fmt(seconds) { seconds = Math.max(0, Number(seconds) || 0); const m = Math.floor(seconds / 60); const s = Math.floor(seconds % 60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
+  function setStatus(node, text, kind = '') { node.className = `status${kind ? ` ${kind}` : ''}`; node.textContent = text; }
+  function clampSelection() {
+    if (!mediaDuration) return;
+    let start = Math.max(0, Math.min(mediaDuration, Number(startInput.value) || 0));
+    let end = Math.max(0, Math.min(mediaDuration, Number(endInput.value) || 0));
+    if (end <= start) end = Math.min(mediaDuration, start + 0.5);
+    startInput.value = start.toFixed(1).replace(/\.0$/, '');
+    endInput.value = end.toFixed(1).replace(/\.0$/, '');
+    const left = mediaDuration ? start / mediaDuration * 100 : 0;
+    const width = mediaDuration ? (end - start) / mediaDuration * 100 : 0;
+    selection.style.left = `${left}%`; selection.style.width = `${width}%`;
+    document.getElementById('selected-chip').textContent = `${fmt(start)} – ${fmt(end)}`;
+  }
+  function drawWaveform(values = null) {
+    const ctx = waveform.getContext('2d'); const w = waveform.width; const h = waveform.height;
+    ctx.clearRect(0,0,w,h); ctx.fillStyle = '#0c121c'; ctx.fillRect(0,0,w,h);
+    ctx.strokeStyle = '#23344b'; ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
+    const count = Math.floor(w / 5); ctx.fillStyle = '#4b759f';
+    for (let i=0; i<count; i++) { const value = values ? values[i % values.length] : (0.13 + Math.abs(Math.sin(i*.73))*0.28 + Math.abs(Math.sin(i*.19))*0.13); const bar = Math.max(3, value*h*.75); ctx.fillRect(i*5, (h-bar)/2, 2, bar); }
+  }
+  async function drawFileWaveform(file) {
+    try {
+      const buffer = await file.arrayBuffer(); const AC = window.AudioContext || window.webkitAudioContext; if (!AC) throw Error('no-audio-context');
+      const decoded = await new AC().decodeAudioData(buffer); const data = decoded.getChannelData(0); const values=[]; const block=Math.max(1,Math.floor(data.length/600));
+      for (let i=0;i<600;i++) { let peak=0; const from=i*block; for(let j=from;j<Math.min(data.length,from+block);j+=4) peak=Math.max(peak,Math.abs(data[j])); values.push(peak); }
+      drawWaveform(values);
+    } catch (_) { drawWaveform(); }
+  }
+  function updateMedia(file) {
+    if (!file) return; sourceFile=file; if (sourceUrl) URL.revokeObjectURL(sourceUrl); sourceUrl=URL.createObjectURL(file);
+    fileName.textContent=file.name; empty.hidden=true; video.hidden=true; audio.hidden=true;
+    const isVideo=file.type.startsWith('video') || /\.(mp4|mov|mkv|webm|avi)$/i.test(file.name);
+    const player=isVideo ? video : audio; player.src=sourceUrl; player.hidden=false;
+    player.onloadedmetadata=()=>{ mediaDuration=Number(player.duration)||0; durationLabel.textContent=fmt(mediaDuration); document.getElementById('ruler-middle').textContent=fmt(mediaDuration/2); document.getElementById('ruler-end').textContent=fmt(mediaDuration); startInput.max=mediaDuration; endInput.max=mediaDuration; startInput.value=0; endInput.value=Math.min(10,mediaDuration).toFixed(1).replace(/\.0$/,''); clampSelection(); timelineStatus.textContent='已加载媒体，可以选择片段并分析。'; };
+    drawFileWaveform(file); document.getElementById('voice-file-name').value=`${file.name}（按左侧时间段截取）`; referenceText.value=''; transcriptStatus.textContent='选择 Zero-shot 后会自动识别参考台词。';
+    if (ttsMode.value==='zero_shot') fillTranscript();
+  }
+  async function fillTranscript() {
+    if (!sourceFile || ttsMode.value !== 'zero_shot') return;
+    transcriptStatus.textContent='正在截取所选片段并自动识别参考台词…'; transcriptStatus.className='help';
+    const data=new FormData(); data.append('reference_media',sourceFile); data.append('reference_start',startInput.value); data.append('reference_seconds',Math.max(.5,(Number(endInput.value)||0)-(Number(startInput.value)||0))); data.append('noise_reduction','0'); data.append('trim_leading_silence','true');
+    try { const response=await fetch('/api/tts/reference-transcript',{method:'POST',body:data}); const result=await response.json(); if(!response.ok) throw Error(result.detail||'参考台词识别失败'); referenceText.value=result.reference_text||''; transcriptStatus.textContent='已由 Qwen3-ASR 自动填入；请确认后可以直接修改。'; timelineStatus.textContent='参考台词已就绪，可以生成片段试音。'; }
+    catch(error) { transcriptStatus.textContent=error.message||String(error); transcriptStatus.className='help status error'; }
+  }
+  function renderSegments() {
+    const root=document.getElementById('segments'); if(!segments.length){root.innerHTML='<div class="empty">分析后，识别出的说话片段会按时间戳显示在这里。</div>';return;}
+    root.innerHTML=segments.map((item,index)=>`<div class="segment ${index===0?'selected':''}" data-index="${index}"><span class="segment-time">${fmt(item.start)}<br>${fmt(item.end)}</span><span><span class="segment-text">${esc(item.text||'待识别台词')}</span><br><span class="segment-speaker">${esc(item.speaker||'说话人 A')}</span></span><button class="ghost use-segment" type="button">使用此段</button></div>`).join('');
+  }
+  function analyzeCurrent() {
+    if(!sourceFile){setStatus(timelineStatus,'请先选择视频或音频。','warn');return;}
+    const start=Number(startInput.value)||0,end=Number(endInput.value)||0; segments=[{start,end,text:referenceText.value||'正在识别，稍后可编辑',speaker:'说话人 A'}]; renderSegments(); timelineStatus.textContent='当前片段已加入时间轴；点击“重新识别”可更新台词。'; document.querySelector('.step:nth-child(3)').classList.add('active'); fillTranscript();
+  }
+  startInput.addEventListener('input',clampSelection); endInput.addEventListener('input',clampSelection);
+  mediaInput.addEventListener('change',()=>updateMedia(mediaInput.files[0]));
+  ['dragenter','dragover'].forEach(event=>drop.addEventListener(event,e=>{e.preventDefault();drop.classList.add('drag');}));
+  ['dragleave','drop'].forEach(event=>drop.addEventListener(event,e=>{e.preventDefault();drop.classList.remove('drag');}));
+  drop.addEventListener('drop',e=>updateMedia(e.dataTransfer.files[0]));
+  document.getElementById('analyze-btn').addEventListener('click',analyzeCurrent);
+  document.getElementById('transcript-btn').addEventListener('click',fillTranscript);
+  document.getElementById('select-all-btn').addEventListener('click',()=>{if(!mediaDuration)return;startInput.value=0;endInput.value=mediaDuration.toFixed(1).replace(/\.0$/,'');clampSelection();setStatus(timelineStatus,'已选择整段媒体；批量流程会在后台分析后拆分人声。','warn');});
+  document.getElementById('use-media-btn').addEventListener('click',()=>{if(sourceFile)fillTranscript();});
+  document.getElementById('separate-btn').addEventListener('click',()=>setStatus(document.getElementById('separate-status'),'分离任务入口已准备。下一步接入人声分离模型后，这里会生成“人声轨”和“环境声轨”。','warn'));
+  document.getElementById('segments').addEventListener('click',e=>{const button=e.target.closest('.use-segment');if(!button)return;const item=segments[Number(button.closest('.segment').dataset.index)];startInput.value=item.start;endInput.value=item.end;referenceText.value=item.text||'';clampSelection();});
+  ttsMode.addEventListener('change',()=>{referenceText.disabled=false;if(ttsMode.value==='zero_shot')fillTranscript();else transcriptStatus.textContent='当前模式不需要参考台词；仍然可以保留已识别文本作记录。';});
+  async function generatePreview() {
+    if(!sourceFile){setStatus(document.getElementById('tts-status'),'请先选择参考媒体。','warn');return;}
+    const button=document.getElementById('preview-btn');button.disabled=true;setStatus(document.getElementById('tts-status'),'正在抽取选中片段并生成试音…');
+    const data=new FormData(); const start=Number(startInput.value)||0; const end=Number(endInput.value)||0;
+    data.append('reference_media',sourceFile);data.append('output_dir','F:\\voice');data.append('mode',ttsMode.value);data.append('reference_text',ttsMode.value==='zero_shot'?referenceText.value:'');data.append('prompt_instruction','You are a helpful assistant.');data.append('target_text',document.getElementById('target-text').value);data.append('reference_start',start);data.append('reference_seconds',Math.max(.5,end-start));data.append('noise_reduction','0');data.append('trim_leading_silence','true');data.append('speed',document.getElementById('tts-speed').value);data.append('seed',document.getElementById('tts-seed').value);data.append('text_frontend','true');data.append('target_duration',Math.max(.5,end-start));data.append('fit_duration',document.getElementById('fit-duration').checked?'true':'false');
+    try { const response=await fetch('/api/tts/direct',{method:'POST',body:data});const result=await response.json();if(!response.ok)throw Error(result.detail||'试音失败');setStatus(document.getElementById('tts-status'),result.message);document.getElementById('preview-box').hidden=false;document.getElementById('tts-preview').src=`${result.output_url}?t=${Date.now()}`;document.getElementById('tts-output-path').textContent=result.output_path;document.querySelector('.step:nth-child(4)').classList.add('active'); }
+    catch(error){setStatus(document.getElementById('tts-status'),error.message||String(error),'error');} finally {button.disabled=false;}
+  }
+  document.getElementById('preview-btn').addEventListener('click',generatePreview);
+  function batchMessage(text){setStatus(document.getElementById('batch-status'),text,'warn');document.querySelector('.step:nth-child(2)').classList.add('active');}
+  document.getElementById('batch-btn').addEventListener('click',()=>batchMessage('已记录批量配音意图。接入整段时间戳 ASR 后，会在这里列出每句话并逐段生成。'));
+  document.getElementById('sentence-batch-btn').addEventListener('click',()=>batchMessage('按句分段入口已准备：后端将使用 ASR + ForcedAligner 生成每句起止时间，并把台词表放到这里编辑。'));
+  document.getElementById('full-batch-btn').addEventListener('click',()=>batchMessage('整段人声入口已准备：先完成人声/环境声分离，再按时间戳生成并混回视频。'));
+  drawWaveform(); clampSelection();
+</script>
+</body>
+</html>

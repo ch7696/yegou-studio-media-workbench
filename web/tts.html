@@ -15,6 +15,10 @@
     .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; margin:16px 0; }
     .title { display:flex; align-items:baseline; gap:10px; }
     .title span, .help, .meta { color:var(--muted); font-size:12px; }
+    .field-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .field-head button { padding:5px 9px; font-size:12px; background:#334d77; }
+    .field-head button:hover { background:#41689f; }
+    .term { border-bottom:1px dotted var(--muted); cursor:help; }
     .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
     label { display:flex; flex-direction:column; gap:5px; color:var(--muted); }
     label.wide { grid-column:span 3; }
@@ -38,7 +42,7 @@
 <body>
 <main>
   <h1>CosyVoice3 直接 TTS 工作台</h1>
-  <p>上传单人参考音频或视频，系统只抽取参考音频并直接调用 TTS。这里不会做说话人识别、聚类或 ASR；Zero-shot 的参考台词需要你手工填写。</p>
+  <p>上传一段包含清楚人声的音频或视频，选择要生成的文本即可。系统会自动截取参考音频；Zero-shot 模式会自动识别参考台词，你可以检查后修改。</p>
 
   <section class="panel">
     <div class="title"><h2>参考媒体</h2><span>音频 / 视频 → prompt_wav</span></div>
@@ -55,17 +59,22 @@
       <div class="result">
         <div class="title"><h2>TTS 输入</h2><span>按官方模式分别传参</span></div>
         <div class="grid">
-          <label>模式
-            <select id="mode">
-              <option value="cross_lingual">无参考台词复刻：inference_cross_lingual</option>
-              <option value="zero_shot">Zero-shot：tts_text + prompt_text + prompt_wav</option>
-              <option value="instruct2">Instruct2：tts_text + instruct_text + prompt_wav</option>
-            </select>
-          </label>
+        <label>模式
+          <select id="mode">
+              <option value="cross_lingual">无需参考台词：音频 + 目标文本</option>
+              <option value="zero_shot">Zero-shot：自动识别参考台词</option>
+              <option value="instruct2">Instruct2：带表达指令</option>
+          </select>
+          <span class="help"><span class="term" title="默认推荐：只用参考声音提取音色，不要求你先听写台词。">新手建议先用无需参考台词模式</span></span>
+        </label>
           <label>speed<input id="speed" type="number" min="0.5" max="2" step="0.05" value="1"></label>
           <label>目标时长（秒）<input id="target-duration" type="number" min="0.5" max="120" step="0.5" value="5"></label>
           <label>随机 seed<input id="seed" type="number" min="0" max="2147483647" step="1" value="0"><span class="help">官方 WebUI 同样设置随机 seed</span></label>
-          <label class="wide"><span id="reference-label">参考台词（当前模式不需要）</span><textarea id="reference-text" disabled placeholder="Zero-shot 模式填写参考音频中实际说出的台词"></textarea></label>
+          <label class="wide">
+            <span class="field-head"><span id="reference-label">参考台词（当前模式不需要）</span><button id="auto-transcript" type="button" hidden>重新识别</button></span>
+            <textarea id="reference-text" disabled placeholder="切换到 Zero-shot 后，这里会自动填入参考音频中的台词"></textarea>
+            <span id="reference-source" class="help"></span>
+          </label>
           <label class="wide"><span id="instruction-label">CosyVoice3 前置指令</span><textarea id="prompt-instruction">You are a helpful assistant.</textarea><span id="instruction-help" class="help">无参考台词复刻：按官方 CosyVoice3 示例把“指令 + &lt;|endofprompt|&gt; + 目标文本”送入 inference_cross_lingual。</span></label>
           <label class="wide">tts_text：要生成的文本<textarea id="target-text" required>今天辛苦了，接下来慢一点就好。</textarea></label>
           <label class="check"><input id="text-frontend" type="checkbox" checked>启用 text_frontend（官方默认）</label>
@@ -94,6 +103,9 @@
   const referenceLabel = document.getElementById('reference-label');
   const instructionLabel = document.getElementById('instruction-label');
   const instructionHelp = document.getElementById('instruction-help');
+  const referenceMedia = document.getElementById('reference-media');
+  const autoTranscript = document.getElementById('auto-transcript');
+  const referenceSource = document.getElementById('reference-source');
   const status = document.getElementById('status');
   const resultPanel = document.getElementById('result-panel');
 
@@ -106,7 +118,8 @@
     const zeroShot = selectedMode === 'zero_shot';
     const instruct2 = selectedMode === 'instruct2';
     referenceText.disabled = !zeroShot;
-    referenceLabel.textContent = zeroShot ? '参考台词（Zero-shot 必填）' : '参考台词（当前模式不需要）';
+    referenceLabel.textContent = zeroShot ? '参考台词（自动识别，可修改）' : '参考台词（当前模式不需要）';
+    autoTranscript.hidden = !zeroShot;
     instructionLabel.textContent = zeroShot ? 'prompt_text 前缀指令' : (instruct2 ? 'instruct_text' : 'CosyVoice3 tts_text 前置指令');
     instructionHelp.innerHTML = zeroShot
       ? 'Zero-shot 会按官方模板拼成：指令 + &lt;|endofprompt|&gt; + 参考台词。'
@@ -114,8 +127,41 @@
         ? 'Instruct2 会按官方模板传入：tts_text、instruct_text、prompt_wav；参考台词不会发送。'
         : '无参考台词复刻：把“指令 + &lt;|endofprompt|&gt; + 目标文本”作为 tts_text，直接调用 inference_cross_lingual。');
   }
-  mode.addEventListener('change', updateMode);
+  mode.addEventListener('change', () => { updateMode(); if (mode.value === 'zero_shot') fillReferenceTranscript(); });
   updateMode();
+
+  async function fillReferenceTranscript() {
+    const file = referenceMedia.files[0];
+    if (!file || mode.value !== 'zero_shot') return;
+    autoTranscript.disabled = true;
+    autoTranscript.textContent = '识别中…';
+    referenceSource.className = 'help';
+    referenceSource.textContent = '正在截取参考片段并用 Qwen3-ASR 识别台词，请稍候。';
+    const data = new FormData();
+    data.append('reference_media', file);
+    data.append('reference_start', document.getElementById('reference-start').value);
+    data.append('reference_seconds', document.getElementById('reference-seconds').value);
+    data.append('noise_reduction', document.getElementById('noise-reduction').value);
+    data.append('trim_leading_silence', document.getElementById('trim-leading-silence').checked ? 'true' : 'false');
+    try {
+      const response = await fetch('/api/tts/reference-transcript', { method:'POST', body:data });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || '参考台词识别失败');
+      referenceText.value = result.reference_text || '';
+      referenceSource.textContent = '已由 Qwen3-ASR 自动填入；请确认文字与参考音频完全一致，必要时直接修改。';
+      status.className = 'status';
+      status.textContent = result.message || '参考台词已填入';
+    } catch (error) {
+      referenceSource.className = 'help error';
+      referenceSource.textContent = error.message || String(error);
+    } finally {
+      autoTranscript.disabled = false;
+      autoTranscript.textContent = '重新识别';
+    }
+  }
+
+  referenceMedia.addEventListener('change', fillReferenceTranscript);
+  autoTranscript.addEventListener('click', fillReferenceTranscript);
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -124,7 +170,9 @@
     const button = document.getElementById('submit');
     button.disabled = true;
     status.className = 'status';
-    status.textContent = '正在抽取参考音频并生成……不会执行说话人识别或 ASR。';
+    status.textContent = mode.value === 'zero_shot'
+      ? '正在抽取参考音频、确认参考台词并生成……首次运行可能需要加载 ASR 和 TTS 模型。'
+      : '正在抽取参考音频并生成……';
     const data = new FormData();
     data.append('reference_media', file);
     data.append('output_dir', document.getElementById('output-dir').value);
@@ -153,6 +201,9 @@
       document.getElementById('result-message').className = result.warning ? 'status warn' : 'status';
       document.getElementById('output-path').textContent = result.output_path;
       document.getElementById('reference-path').textContent = result.reference_path;
+      referenceSource.textContent = result.reference_text_source === 'auto_asr'
+        ? '本次生成使用了自动识别的参考台词。'
+        : (result.reference_text_source === 'manual' ? '本次生成使用了你确认后的参考台词。' : '');
       document.getElementById('output-audio').src = `${result.output_url}?t=${Date.now()}`;
       document.getElementById('reference-audio').src = `${result.reference_url}?t=${Date.now()}`;
     } catch (error) {

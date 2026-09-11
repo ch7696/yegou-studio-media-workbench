@@ -12,6 +12,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
 from . import tts
+from .asr import transcribe
 from .assets import save_card
 from .audio import fit_audio
 from .config import (
@@ -42,6 +43,11 @@ def index() -> str:
 @app.get("/tts", response_class=HTMLResponse)
 def direct_tts_page() -> str:
     return Path("/app/web/tts.html").read_text(encoding="utf-8")
+
+
+@app.get("/studio", response_class=HTMLResponse)
+def dubbing_studio_page() -> str:
+    return Path("/app/web/studio.html").read_text(encoding="utf-8")
 
 
 @app.get("/api/health")
@@ -102,6 +108,59 @@ def sample(asset_id: str) -> FileResponse:
     return FileResponse(path, media_type="audio/wav", filename=path.name)
 
 
+@app.post("/api/tts/reference-transcript")
+async def reference_transcript(
+    reference_media: UploadFile = File(...),
+    reference_start: float = Form(0.0),
+    reference_seconds: float = Form(10.0),
+    noise_reduction: float = Form(0.0),
+    trim_leading_silence: bool = Form(True),
+) -> dict[str, Any]:
+    """Extract a prompt clip and fill the Zero-shot transcript with Qwen3-ASR."""
+
+    original = safe_name(reference_media.filename or "未命名参考媒体", 120)
+    suffix = Path(original).suffix.lower() or ".bin"
+    job_id = uuid.uuid4().hex
+    source = DIRECT_TTS_UPLOADS / f"{job_id}{suffix}"
+    with source.open("wb") as stream:
+        while True:
+            chunk = await reference_media.read(1024 * 1024)
+            if not chunk:
+                break
+            stream.write(chunk)
+
+    try:
+        probe(source)
+        reference_start = max(0.0, float(reference_start))
+        reference_seconds = max(1.0, min(30.0, float(reference_seconds)))
+        noise_reduction = max(0.0, min(30.0, float(noise_reduction)))
+        work_root = DIRECT_TTS_WORK / f"transcript-{job_id}"
+        reference_audio = work_root / "参考音频.wav"
+        actual_seconds = extract_reference(
+            source,
+            reference_audio,
+            start_seconds=reference_start,
+            max_seconds=reference_seconds,
+            noise_reduction=noise_reduction,
+            trim_leading_silence=trim_leading_silence,
+        )
+        detected = transcribe([reference_audio])
+        text = (detected[0] if detected else "").strip()
+        if not text:
+            raise RuntimeError("没有识别到参考台词，请换一段人声更清楚的片段或手工填写")
+        return {
+            "ok": True,
+            "reference_text": text,
+            "reference_text_source": "auto_asr",
+            "reference_duration_sec": round(actual_seconds, 3),
+            "message": "参考台词已自动填入，可直接使用或手工修改",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"自动识别参考台词失败：{exc}") from exc
+
+
 @app.post("/api/tts/direct")
 async def direct_tts(
     reference_media: UploadFile = File(...),
@@ -122,9 +181,9 @@ async def direct_tts(
 ) -> dict[str, Any]:
     """Direct TTS workbench: media -> prompt clip -> CosyVoice3.
 
-    This endpoint intentionally does not call diarization or ASR. In
-    zero-shot mode the reference transcript is supplied by the user because
-    CosyVoice3's official prompt contains it.
+    This endpoint does not call diarization. In zero-shot mode a missing
+    reference transcript is filled by Qwen3-ASR; the user can still edit it
+    before submitting from the WebUI.
     """
 
     if mode not in {"zero_shot", "cross_lingual", "instruct2"}:
@@ -136,9 +195,6 @@ async def direct_tts(
         raise HTTPException(status_code=400, detail="目标文本不能超过 2000 个字符")
     reference_text = str(reference_text or "").strip()
     prompt_instruction = str(prompt_instruction or "You are a helpful assistant.").strip()
-    if mode == "zero_shot" and not reference_text:
-        raise HTTPException(status_code=400, detail="Zero-shot 模式需要手工填写参考音频台词")
-
     try:
         speed = float(speed)
         reference_start = max(0.0, float(reference_start))
@@ -184,6 +240,14 @@ async def direct_tts(
         exported_reference = output_root / "参考音频.wav"
         shutil.copy2(reference_audio, exported_reference)
 
+        reference_text_source = "manual" if reference_text else ""
+        if mode == "zero_shot" and not reference_text:
+            detected = transcribe([reference_audio])
+            reference_text = (detected[0] if detected else "").strip()
+            reference_text_source = "auto_asr"
+            if not reference_text:
+                raise RuntimeError("Zero-shot 自动识别参考台词失败，请手工填写参考音频中的实际台词")
+
         quality_warning = None
         if mode == "zero_shot":
             prompt_text = tts.prompt_marker(reference_text, prompt_instruction)
@@ -227,6 +291,7 @@ async def direct_tts(
             "reference_start_sec": reference_start,
             "reference_duration_sec": round(actual_reference_seconds, 3),
             "reference_text": reference_text,
+            "reference_text_source": reference_text_source,
             "mode": mode,
             "prompt_instruction": prompt_instruction,
             "target_text": target_text,
@@ -257,6 +322,8 @@ async def direct_tts(
             "raw_duration_sec": round(raw_seconds, 3),
             "final_duration_sec": round(final_seconds, 3),
             "warning": quality_warning,
+            "reference_text": reference_text,
+            "reference_text_source": reference_text_source,
         }
     except HTTPException:
         raise
