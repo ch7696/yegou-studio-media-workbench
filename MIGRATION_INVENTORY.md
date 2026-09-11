@@ -1,62 +1,77 @@
-# 云迁移清单
+# 云端媒体工作台迁移清单
 
 统计时间：2026-09-11（当前 WSL 环境）
 
-## 当前占用
+## 迁移边界
 
-| 类别 | 大小 | 说明 |
+云端只运行媒体处理链路：视频/音频上传、ASR、说话人和时间戳处理、CosyVoice 配音、MiniCPM-V 视觉分析、HunyuanOCR 和 PaddleOCR-VL。RAGFlow、知识库、Embedding、数据库、搜索服务和文章库继续留在本机。
+
+## 当前本机占用
+
+| 类别 | 大小 | 处理方式 |
 |---|---:|---|
-| Docker 镜像存储 | 130.9 GB | 30 个镜像，包含旧版本、重复标签和悬空构建层 |
-| Docker 构建缓存 | 40.03 GB | 不需要迁移，其中约 34.15 GB 可回收 |
-| 容器可写层 | 2.8 GB | 主要来自已停止容器，不作为迁移资产 |
-| Docker 数据卷 | 538.4 MB | RAGFlow 的 MySQL、Elasticsearch、MinIO、Redis 数据等 |
-| 已下载模型 | 32.2 GB | 模型权重，不包含在 Docker 镜像大小中 |
-| 工作台代码 | 约 1.2 MB | 已提交 Git，可直接复制或重新拉取 |
+| Docker 镜像存储 | 130.9 GB | 含旧版本、重复标签和悬空镜像，不能直接视为迁移包 |
+| Docker 构建缓存 | 40.03 GB | 不迁移，云端重新构建或从镜像仓库拉取 |
+| 容器可写层 | 2.8 GB | 不迁移 |
+| RAGFlow 数据卷 | 538.4 MB | 留在本机，不迁移 |
+| 已下载模型 | 32.2 GB | 按媒体链路选择性迁移 |
+| 工作台代码 | 约 1.2 MB | 通过 Git 迁移 |
+| `G:\\天涯` 原始文章 | 约 24 GB | 留在本机，除非云端也要处理这些文章 |
+| ComfyUI 输出 | 约 9.6 GB | 按需迁移原始媒体 |
 
-## 建议迁移分层
+## 云端实际需要的内容
 
-### 第一阶段：核心服务
+### 语音配音基础包
 
-需要迁移的 Docker 镜像名义大小约 **76.5GB**：
+Docker 镜像名义大小约 **61.8GB**：
 
 - `ragflow-cosyvoice-speaker:0.0.2`：32.1GB
 - `ragflow-qwen-asr:0.0.6`：29.7GB
-- RAGFlow：11.4GB
-- Elasticsearch：2.07GB
-- MySQL、MinIO、Valkey：约 1.2GB
 
-加上选定运行模型约 **24.6GB**，以及 RAGFlow 数据卷，核心迁移包约 **101GB**。如果保留原始 Qwen3-Embedding-4B 版本，再增加约 7.6GB。
+模型约 **12.7GB**：
 
-### 第二阶段：视觉和知识库扩展
+- Fun-CosyVoice3-0.5B：9.1GB
+- Qwen3-ASR-0.6B：1.8GB
+- Qwen3-ForcedAligner-0.6B：1.8GB
 
-视觉与向量服务还需要以下镜像，名义大小约 **52.7GB**：
+语音配音基础包合计约 **74.5GB**，加上系统、临时音频和输出文件，云端建议准备 **150GB SSD**。
+
+### 完整媒体分析包
+
+在语音配音基础包上，再加入视觉服务镜像约 **52.7GB**：
 
 - vLLM：28.1GB
 - PaddleOCR-VL Pipeline：4.66GB
 - PaddleOCR-VL API：1.3GB
 - PaddleOCR GenAI vLLM Server：18.6GB
 
-这些服务目前没有全部常驻运行，云端应按显存逐个启动。加入核心服务和模型后，完整运行环境建议按 **150GB 以上**准备。
+视觉模型约 **9.2GB**：
 
-## 不要直接打包的内容
+- MiniCPM-V 4.5 GPTQ 4-bit：6.7GB
+- HunyuanOCR-1.5：2.5GB
 
-- Docker 构建缓存 40.03GB：云端重新构建或从镜像仓库拉取即可。
-- 旧版 CosyVoice 镜像和悬空镜像：当前工作台使用 `ragflow-cosyvoice-speaker:0.0.2`。
-- `G:\\天涯` 原始文章：约 24GB，属于业务资产，单独上传或挂载对象存储。
-- ComfyUI 输出目录：约 9.6GB，按需迁移，不属于服务镜像。
+完整媒体处理环境约 **136.4GB**，不包含原始视频和音频。云端建议准备 **250GB SSD**，持续处理大量媒体时准备 **300GB 以上**更合适。
 
-## 云端落地方式
+## 明确留在本机的内容
 
-1. 创建带 NVIDIA 驱动和 Docker 的 GPU 实例，代码用 Git 迁移。
-2. 模型权重放在独立数据盘或对象存储挂载目录，不塞进镜像。
-3. 核心镜像优先使用镜像仓库或 `docker save` 导出；不要传构建缓存。
-4. 恢复 RAGFlow 的 MySQL、Elasticsearch、MinIO、Redis 数据卷。
-5. 将 Windows 路径改成云端 Linux 路径，例如 `F:\\voice` 改为 `/data/voice`。
-6. 先启动 RAGFlow、ASR、CosyVoice，再按需启动 OCR、MiniCPM-V、HunyuanOCR 和 Embedding 服务。
+- RAGFlow 镜像及其 MySQL、Elasticsearch、MinIO、Valkey 服务。
+- RAGFlow 数据卷和本机知识库。
+- Qwen3-Embedding-4B 原版与 NVFP4 版；云端不做向量检索时不需要迁移。
+- `G:\\天涯` 文章库，除非后续决定让云端处理文章。
+- Docker 构建缓存、旧版 CosyVoice 镜像和悬空镜像。
+- AnythingLLM、Ollama 等本机辅助服务，除非另行决定迁移。
+
+## 推荐迁移步骤
+
+1. 云端创建带 NVIDIA 驱动、Docker 和 CUDA 运行时的 GPU 实例。
+2. 通过 Git 迁移 `voice-asset-workbench`、CosyVoice 和 3D-Speaker 代码。
+3. 模型放在独立数据盘的 `/data/models`，不要写进镜像层。
+4. 先部署 ASR 和 CosyVoice，确认配音链路后再部署视觉/OCR服务。
+5. 将 Windows 路径改成 Linux 路径，例如 `F:\\voice` 改为 `/data/voice`。
+6. 原始视频、音频和生成结果单独放 `/data/media`，不要和 Docker 根盘混在一起。
 
 ## 机器规格建议
 
-- 只跑 RAGFlow、ASR、CosyVoice：24GB 显存更适合并发测试，32GB 系统内存起步。
-- 同时做视觉分析、OCR、Embedding：建议 24GB 以上显存；追求速度时拆成两个 GPU 服务更稳。
-- 磁盘：核心迁移建议 200GB SSD；包含视觉服务和原始素材建议 300GB 起步，并预留增长空间。
-
+- 只做语音配音：24GB 显存、32GB 内存起步。
+- 同时做视频视觉分析和 OCR：建议 24GB 以上显存、64GB 内存。
+- 追求速度时，ASR/TTS 与视觉模型拆到不同 GPU；16GB 显存适合串行处理，不适合全部模型同时常驻。
