@@ -159,7 +159,7 @@
         <div class="card-head"><div><div class="eyebrow">02 / TIMELINE</div><h2>可视时间轴与音轨</h2><p>拖动起止时间选择要分析或重新配音的片段。</p></div><span class="chip">时间戳</span></div>
         <div class="toolbar">
           <div class="chips"><span class="chip ok">人声轨</span><span class="chip" style="color:#d8a9ff">环境声轨</span></div>
-          <div class="actions"><button id="analyze-btn" class="secondary" type="button">分析当前片段</button><button id="select-all-btn" class="ghost" type="button">选择整段</button></div>
+          <div class="actions"><button id="analyze-btn" class="secondary" type="button">分析整段媒体</button><button id="select-all-btn" class="ghost" type="button">选择整段</button></div>
         </div>
         <div class="wavebox"><canvas id="waveform" width="1100" height="124"></canvas><div id="selection" class="selection"></div></div>
         <div class="ruler"><span>00:00</span><span id="ruler-middle">00:00</span><span id="ruler-end">00:00</span></div>
@@ -167,7 +167,12 @@
           <label>片段开始（秒）<input id="segment-start" type="number" min="0" step="0.1" value="0"></label>
           <label>片段结束（秒）<input id="segment-end" type="number" min="0.1" step="0.1" value="10"></label>
         </div>
-        <div class="timeline-actions"><span id="timeline-status" class="help">还没有分析结果；可以先选择一段片段。</span><span class="help">后端会保存原始时间戳，方便回写视频。</span></div>
+        <div class="form-grid" style="margin-top:12px">
+          <label class="field">预计说话人数（0=自动）<input id="analysis-speaker-num" type="number" min="0" max="32" step="1" value="0"><span class="help">已知人数时填写可减少误分。</span></label>
+          <label class="field">清洁强度<input id="analysis-noise-reduction" type="number" min="0" max="30" step="1" value="8"><span class="help">0 表示不做降噪，过高可能损伤人声。</span></label>
+          <label class="field wide"><span class="inline"><input id="analysis-overlap" type="checkbox" checked style="width:auto"> 检测重叠说话</span><span class="help">多人抢话时保留重叠标记；若本机缺少重叠模型，后端自动回退到普通分段。</span></label>
+        </div>
+        <div class="timeline-actions"><span id="timeline-status" class="help">还没有分析结果；点击“分析整段媒体”会处理完整文件。</span><span class="help">后端会保存原始时间戳，方便回写视频。</span></div>
         <div id="segments" class="segments"><div class="empty">分析后，识别出的说话片段会按时间戳显示在这里。</div></div>
       </section>
 
@@ -177,14 +182,14 @@
           <div class="lane"><span class="lane-name">人声轨</span><span class="lane-bar"></span><span class="chip warn">待处理</span></div>
           <div class="lane"><span class="lane-name">环境声轨</span><span class="lane-bar bg"></span><span class="chip warn">待处理</span></div>
         </div>
-        <div id="separate-status" class="status">分离按钮是后续音频分离模型的统一入口；当前页面先完成时间轴和 TTS 试音流程。</div>
+        <div id="separate-status" class="status">首版会生成独立配音人声轨；环境声 / BGM 分离保持为下一阶段入口。</div>
       </section>
     </div>
 
     <aside class="stack">
       <section class="card">
         <div class="card-head"><div><div class="eyebrow">QUICK GUIDE</div><h2>第一次使用看这里</h2></div><span class="chip ok">小白模式</span></div>
-        <div class="notice ok">先选文件，再点“分析当前片段”。Zero-shot 会自动把参考音频中的台词填到下面，确认无误后再生成。</div>
+        <div class="notice ok">先选文件，再点“分析整段媒体”。分析完成后，页面会列出每个说话人的时间轴；给每个说话人绑定一段参考音频，再开始批量配音。</div>
         <details open style="margin-top:13px"><summary><strong>这些词是什么意思？</strong></summary>
           <p class="help"><span class="term" title="从参考音频中提取说话人的音色和说话方式">参考音色</span>：告诉模型“用谁的声音说”。</p>
           <p class="help"><span class="term" title="Qwen3-ASR 自动听写参考音频中的内容">参考台词</span>：Zero-shot 的语义提示，页面自动填写，也可以手工修正。</p>
@@ -198,8 +203,12 @@
         <div class="form-grid">
           <label class="field wide">参考音频 / 视频
             <div class="voice-picker"><input id="voice-file-name" value="使用左侧媒体的选中片段" readonly><button id="use-media-btn" class="secondary" type="button">使用当前媒体</button></div>
-            <span class="help">参考音频只用于提取音色；原视频仍然保留。</span>
+            <input id="speaker-reference-file" type="file" accept="audio/*,video/*">
+            <div class="actions"><button id="attach-reference-btn" class="secondary" type="button">绑定到选中说话人</button><span id="selected-speaker" class="help">还没有选择说话人</span></div>
+            <span class="help">参考音频只用于提取音色；零样本模式会自动识别参考台词，也可以手工改正。</span>
           </label>
+          <label class="field">参考开始（秒）<input id="reference-start" type="number" min="0" step="0.1" value="0"><span class="help">使用单独参考文件时从这里开始截取。</span></label>
+          <label class="field">参考时长（秒）<input id="reference-seconds" type="number" min="1" max="30" step="0.5" value="10"><span class="help">建议保留 6–15 秒清晰人声。</span></label>
           <label class="field wide">复刻方式
             <select id="tts-mode">
               <option value="zero_shot">Zero-shot：自动识别参考台词（推荐高质量）</option>
@@ -215,7 +224,9 @@
           <label class="field wide">新的台词（要生成的内容）<textarea id="target-text" placeholder="输入这段视频里你希望重新说的话">今天辛苦了，接下来慢一点就好。</textarea></label>
           <label class="field">speed<input id="tts-speed" type="number" min="0.5" max="2" step="0.05" value="1"><span class="help">官方范围 0.5–2</span></label>
           <label class="field">随机 seed<input id="tts-seed" type="number" min="0" max="2147483647" step="1" value="0"><span class="help">相同 seed 便于复现</span></label>
-          <label class="field wide"><span class="inline"><input id="fit-duration" type="checkbox" style="width:auto"> 严格适配选中片段时长</span><span class="help">勾选后会用后处理调整长度；建议先试听自然时长。</span></label>
+          <label class="field wide"><span class="inline"><input id="fit-duration" type="checkbox" checked style="width:auto"> 严格适配选中片段时长</span><span class="help">批量配音默认按原时间槽适配；试音时也可以取消查看自然时长。</span></label>
+          <label class="field wide"><span class="inline"><input id="adaptive-speed" type="checkbox" checked style="width:auto"> 根据原片段时长自动调整语速</span><span class="help">先按目标时长估算 speed，再生成；官方范围仍限制在 0.5–2.0。</span></label>
+          <label class="field wide"><span class="inline"><input id="export-video" type="checkbox" checked style="width:auto"> 批量完成后导出替换音轨的视频</span><span class="help">首版会替换原始音轨；环境声 / BGM 分离接入后再做混音。</span></label>
         </div>
         <div class="actions" style="margin-top:13px"><button id="preview-btn" type="button">生成这段试音</button><button id="batch-btn" class="secondary" type="button">准备整段批量重配音</button></div>
         <div id="tts-status" class="status">还没有生成试音。</div>
@@ -227,115 +238,15 @@
   <section class="card batch">
     <div class="card-head"><div><div class="eyebrow">05 / BATCH DUBBING</div><h2>整段人声批量重新配音</h2><p>最终流程会把识别出的台词分段、逐段生成，再按原时间戳合回视频。</p></div><span class="chip warn">流程入口</span></div>
     <div class="batch-grid">
-      <div class="batch-option"><h3>按句分段</h3><p>自动识别每句话的开始和结束时间；每句可以单独修改台词并试听。</p><button id="sentence-batch-btn" class="secondary" type="button">按句准备</button></div>
-      <div class="batch-option"><h3>整段人声</h3><p>绑定一个参考音色，批量生成所有台词，再保留环境声并导出完整视频。</p><button id="full-batch-btn" class="secondary" type="button">整段准备</button></div>
+      <div class="batch-option"><h3>按句分段</h3><p>使用 ASR 词级时间戳和说话人分段，生成可以逐句编辑的时间轴。</p><button id="sentence-batch-btn" class="secondary" type="button">开始全片分析</button></div>
+      <div class="batch-option"><h3>整段人声</h3><p>给时间轴中的说话人绑定参考音色，逐句生成并按原时间戳合成整段声音。</p><button id="full-batch-btn" class="secondary" type="button">开始批量配音</button></div>
     </div>
-    <div id="batch-status" class="status">当前页面先完成片段选择和试音；分离模型、全量时间戳 ASR 和视频回写将在同一工作台继续接入。</div>
+    <div id="batch-status" class="status">流程：分析整段 → 选择说话人 → 绑定参考音色 → 修改台词 → 批量生成。</div>
+    <div id="generated-links" class="actions" style="margin-top:8px"></div>
   </section>
   <div class="footer-note">所有结果按项目目录保存到 F:\\voice；原始文件不会被覆盖。</div>
 </main>
 
-<script>
-  const mediaInput = document.getElementById('media-file');
-  const drop = document.getElementById('drop');
-  const video = document.getElementById('video-preview');
-  const audio = document.getElementById('audio-preview');
-  const empty = document.getElementById('media-empty');
-  const fileName = document.getElementById('file-name');
-  const durationLabel = document.getElementById('file-duration');
-  const startInput = document.getElementById('segment-start');
-  const endInput = document.getElementById('segment-end');
-  const selection = document.getElementById('selection');
-  const waveform = document.getElementById('waveform');
-  const timelineStatus = document.getElementById('timeline-status');
-  const referenceText = document.getElementById('reference-text');
-  const transcriptStatus = document.getElementById('transcript-status');
-  const ttsMode = document.getElementById('tts-mode');
-  let sourceFile = null;
-  let sourceUrl = '';
-  let mediaDuration = 0;
-  let segments = [];
-
-  function esc(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  function fmt(seconds) { seconds = Math.max(0, Number(seconds) || 0); const m = Math.floor(seconds / 60); const s = Math.floor(seconds % 60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
-  function setStatus(node, text, kind = '') { node.className = `status${kind ? ` ${kind}` : ''}`; node.textContent = text; }
-  function clampSelection() {
-    if (!mediaDuration) return;
-    let start = Math.max(0, Math.min(mediaDuration, Number(startInput.value) || 0));
-    let end = Math.max(0, Math.min(mediaDuration, Number(endInput.value) || 0));
-    if (end <= start) end = Math.min(mediaDuration, start + 0.5);
-    startInput.value = start.toFixed(1).replace(/\.0$/, '');
-    endInput.value = end.toFixed(1).replace(/\.0$/, '');
-    const left = mediaDuration ? start / mediaDuration * 100 : 0;
-    const width = mediaDuration ? (end - start) / mediaDuration * 100 : 0;
-    selection.style.left = `${left}%`; selection.style.width = `${width}%`;
-    document.getElementById('selected-chip').textContent = `${fmt(start)} – ${fmt(end)}`;
-  }
-  function drawWaveform(values = null) {
-    const ctx = waveform.getContext('2d'); const w = waveform.width; const h = waveform.height;
-    ctx.clearRect(0,0,w,h); ctx.fillStyle = '#0c121c'; ctx.fillRect(0,0,w,h);
-    ctx.strokeStyle = '#23344b'; ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
-    const count = Math.floor(w / 5); ctx.fillStyle = '#4b759f';
-    for (let i=0; i<count; i++) { const value = values ? values[i % values.length] : (0.13 + Math.abs(Math.sin(i*.73))*0.28 + Math.abs(Math.sin(i*.19))*0.13); const bar = Math.max(3, value*h*.75); ctx.fillRect(i*5, (h-bar)/2, 2, bar); }
-  }
-  async function drawFileWaveform(file) {
-    try {
-      const buffer = await file.arrayBuffer(); const AC = window.AudioContext || window.webkitAudioContext; if (!AC) throw Error('no-audio-context');
-      const decoded = await new AC().decodeAudioData(buffer); const data = decoded.getChannelData(0); const values=[]; const block=Math.max(1,Math.floor(data.length/600));
-      for (let i=0;i<600;i++) { let peak=0; const from=i*block; for(let j=from;j<Math.min(data.length,from+block);j+=4) peak=Math.max(peak,Math.abs(data[j])); values.push(peak); }
-      drawWaveform(values);
-    } catch (_) { drawWaveform(); }
-  }
-  function updateMedia(file) {
-    if (!file) return; sourceFile=file; if (sourceUrl) URL.revokeObjectURL(sourceUrl); sourceUrl=URL.createObjectURL(file);
-    fileName.textContent=file.name; empty.hidden=true; video.hidden=true; audio.hidden=true;
-    const isVideo=file.type.startsWith('video') || /\.(mp4|mov|mkv|webm|avi)$/i.test(file.name);
-    const player=isVideo ? video : audio; player.src=sourceUrl; player.hidden=false;
-    player.onloadedmetadata=()=>{ mediaDuration=Number(player.duration)||0; durationLabel.textContent=fmt(mediaDuration); document.getElementById('ruler-middle').textContent=fmt(mediaDuration/2); document.getElementById('ruler-end').textContent=fmt(mediaDuration); startInput.max=mediaDuration; endInput.max=mediaDuration; startInput.value=0; endInput.value=Math.min(10,mediaDuration).toFixed(1).replace(/\.0$/,''); clampSelection(); timelineStatus.textContent='已加载媒体，可以选择片段并分析。'; };
-    drawFileWaveform(file); document.getElementById('voice-file-name').value=`${file.name}（按左侧时间段截取）`; referenceText.value=''; transcriptStatus.textContent='选择 Zero-shot 后会自动识别参考台词。';
-    if (ttsMode.value==='zero_shot') fillTranscript();
-  }
-  async function fillTranscript() {
-    if (!sourceFile || ttsMode.value !== 'zero_shot') return;
-    transcriptStatus.textContent='正在截取所选片段并自动识别参考台词…'; transcriptStatus.className='help';
-    const data=new FormData(); data.append('reference_media',sourceFile); data.append('reference_start',startInput.value); data.append('reference_seconds',Math.max(.5,(Number(endInput.value)||0)-(Number(startInput.value)||0))); data.append('noise_reduction','0'); data.append('trim_leading_silence','true');
-    try { const response=await fetch('/api/tts/reference-transcript',{method:'POST',body:data}); const result=await response.json(); if(!response.ok) throw Error(result.detail||'参考台词识别失败'); referenceText.value=result.reference_text||''; transcriptStatus.textContent='已由 Qwen3-ASR 自动填入；请确认后可以直接修改。'; timelineStatus.textContent='参考台词已就绪，可以生成片段试音。'; }
-    catch(error) { transcriptStatus.textContent=error.message||String(error); transcriptStatus.className='help status error'; }
-  }
-  function renderSegments() {
-    const root=document.getElementById('segments'); if(!segments.length){root.innerHTML='<div class="empty">分析后，识别出的说话片段会按时间戳显示在这里。</div>';return;}
-    root.innerHTML=segments.map((item,index)=>`<div class="segment ${index===0?'selected':''}" data-index="${index}"><span class="segment-time">${fmt(item.start)}<br>${fmt(item.end)}</span><span><span class="segment-text">${esc(item.text||'待识别台词')}</span><br><span class="segment-speaker">${esc(item.speaker||'说话人 A')}</span></span><button class="ghost use-segment" type="button">使用此段</button></div>`).join('');
-  }
-  function analyzeCurrent() {
-    if(!sourceFile){setStatus(timelineStatus,'请先选择视频或音频。','warn');return;}
-    const start=Number(startInput.value)||0,end=Number(endInput.value)||0; segments=[{start,end,text:referenceText.value||'正在识别，稍后可编辑',speaker:'说话人 A'}]; renderSegments(); timelineStatus.textContent='当前片段已加入时间轴；点击“重新识别”可更新台词。'; document.querySelector('.step:nth-child(3)').classList.add('active'); fillTranscript();
-  }
-  startInput.addEventListener('input',clampSelection); endInput.addEventListener('input',clampSelection);
-  mediaInput.addEventListener('change',()=>updateMedia(mediaInput.files[0]));
-  ['dragenter','dragover'].forEach(event=>drop.addEventListener(event,e=>{e.preventDefault();drop.classList.add('drag');}));
-  ['dragleave','drop'].forEach(event=>drop.addEventListener(event,e=>{e.preventDefault();drop.classList.remove('drag');}));
-  drop.addEventListener('drop',e=>updateMedia(e.dataTransfer.files[0]));
-  document.getElementById('analyze-btn').addEventListener('click',analyzeCurrent);
-  document.getElementById('transcript-btn').addEventListener('click',fillTranscript);
-  document.getElementById('select-all-btn').addEventListener('click',()=>{if(!mediaDuration)return;startInput.value=0;endInput.value=mediaDuration.toFixed(1).replace(/\.0$/,'');clampSelection();setStatus(timelineStatus,'已选择整段媒体；批量流程会在后台分析后拆分人声。','warn');});
-  document.getElementById('use-media-btn').addEventListener('click',()=>{if(sourceFile)fillTranscript();});
-  document.getElementById('separate-btn').addEventListener('click',()=>setStatus(document.getElementById('separate-status'),'分离任务入口已准备。下一步接入人声分离模型后，这里会生成“人声轨”和“环境声轨”。','warn'));
-  document.getElementById('segments').addEventListener('click',e=>{const button=e.target.closest('.use-segment');if(!button)return;const item=segments[Number(button.closest('.segment').dataset.index)];startInput.value=item.start;endInput.value=item.end;referenceText.value=item.text||'';clampSelection();});
-  ttsMode.addEventListener('change',()=>{referenceText.disabled=false;if(ttsMode.value==='zero_shot')fillTranscript();else transcriptStatus.textContent='当前模式不需要参考台词；仍然可以保留已识别文本作记录。';});
-  async function generatePreview() {
-    if(!sourceFile){setStatus(document.getElementById('tts-status'),'请先选择参考媒体。','warn');return;}
-    const button=document.getElementById('preview-btn');button.disabled=true;setStatus(document.getElementById('tts-status'),'正在抽取选中片段并生成试音…');
-    const data=new FormData(); const start=Number(startInput.value)||0; const end=Number(endInput.value)||0;
-    data.append('reference_media',sourceFile);data.append('output_dir','F:\\voice');data.append('mode',ttsMode.value);data.append('reference_text',ttsMode.value==='zero_shot'?referenceText.value:'');data.append('prompt_instruction','You are a helpful assistant.');data.append('target_text',document.getElementById('target-text').value);data.append('reference_start',start);data.append('reference_seconds',Math.max(.5,end-start));data.append('noise_reduction','0');data.append('trim_leading_silence','true');data.append('speed',document.getElementById('tts-speed').value);data.append('seed',document.getElementById('tts-seed').value);data.append('text_frontend','true');data.append('target_duration',Math.max(.5,end-start));data.append('fit_duration',document.getElementById('fit-duration').checked?'true':'false');
-    try { const response=await fetch('/api/tts/direct',{method:'POST',body:data});const result=await response.json();if(!response.ok)throw Error(result.detail||'试音失败');setStatus(document.getElementById('tts-status'),result.message);document.getElementById('preview-box').hidden=false;document.getElementById('tts-preview').src=`${result.output_url}?t=${Date.now()}`;document.getElementById('tts-output-path').textContent=result.output_path;document.querySelector('.step:nth-child(4)').classList.add('active'); }
-    catch(error){setStatus(document.getElementById('tts-status'),error.message||String(error),'error');} finally {button.disabled=false;}
-  }
-  document.getElementById('preview-btn').addEventListener('click',generatePreview);
-  function batchMessage(text){setStatus(document.getElementById('batch-status'),text,'warn');document.querySelector('.step:nth-child(2)').classList.add('active');}
-  document.getElementById('batch-btn').addEventListener('click',()=>batchMessage('已记录批量配音意图。接入整段时间戳 ASR 后，会在这里列出每句话并逐段生成。'));
-  document.getElementById('sentence-batch-btn').addEventListener('click',()=>batchMessage('按句分段入口已准备：后端将使用 ASR + ForcedAligner 生成每句起止时间，并把台词表放到这里编辑。'));
-  document.getElementById('full-batch-btn').addEventListener('click',()=>batchMessage('整段人声入口已准备：先完成人声/环境声分离，再按时间戳生成并混回视频。'));
-  drawWaveform(); clampSelection();
-</script>
+<script src="/studio.js"></script>
 </body>
 </html>

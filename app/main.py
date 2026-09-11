@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import mimetypes
 import shutil
 import uuid
 from datetime import datetime
@@ -11,7 +12,7 @@ from typing import Any
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import tts
+from . import dubbing, tts
 from .asr import transcribe
 from .assets import save_card
 from .audio import fit_audio
@@ -20,6 +21,8 @@ from .config import (
     DIRECT_TTS_MANIFESTS,
     DIRECT_TTS_UPLOADS,
     DIRECT_TTS_WORK,
+    DUBBING_UPLOADS,
+    DUBBING_WORK,
     MANIFESTS,
     RESULTS,
     UPLOADS,
@@ -27,7 +30,7 @@ from .config import (
 )
 from .direct_tts import extract_reference
 from .identification import analyze_file
-from .schemas import TTSGenerateRequest
+from .schemas import DubbingGenerateRequest, TTSGenerateRequest
 from .utils import digest, load_manifest, probe, safe_name, save_json, to_windows_path, to_wsl_path
 
 
@@ -50,6 +53,11 @@ def dubbing_studio_page() -> str:
     return Path("/app/web/studio.html").read_text(encoding="utf-8")
 
 
+@app.get("/studio.js")
+def dubbing_studio_script() -> FileResponse:
+    return FileResponse(Path("/app/web/studio.js"), media_type="application/javascript")
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     return {
@@ -58,6 +66,7 @@ def health() -> dict[str, Any]:
         "tts": "Fun-CosyVoice3-0.5B-2512",
         "tts_modes": ["zero_shot", "cross_lingual", "instruct2"],
         "tts_loaded": tts.TTS_MODEL is not None,
+        "dubbing": True,
     }
 
 
@@ -98,6 +107,168 @@ async def analyze(
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"多人资产处理失败：{exc}") from exc
+
+
+@app.post("/api/dubbing/analyze", status_code=202)
+async def start_dubbing_analysis(
+    media: UploadFile = File(...),
+    output_dir: str = Form("F:\\voice"),
+    speaker_num: int = Form(0),
+    noise_reduction: float = Form(8.0),
+    include_overlap: bool = Form(True),
+    language: str = Form("Chinese"),
+) -> dict[str, Any]:
+    """Queue full-media diarization plus word-level ASR alignment."""
+
+    original = safe_name(media.filename or "未命名音视频", 120)
+    suffix = Path(original).suffix.lower() or ".bin"
+    upload_id = uuid.uuid4().hex
+    source = DUBBING_UPLOADS / f"{upload_id}{suffix}"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    with source.open("wb") as stream:
+        while True:
+            chunk = await media.read(1024 * 1024)
+            if not chunk:
+                break
+            stream.write(chunk)
+    try:
+        probe(source)
+        return dubbing.start_analysis(
+            source,
+            original_filename=original,
+            output_dir=output_dir or str(DEFAULT_OUTPUT),
+            speaker_num=max(0, int(speaker_num)),
+            noise_reduction=max(0.0, min(30.0, float(noise_reduction))),
+            include_overlap=bool(include_overlap),
+            language=str(language or "Chinese"),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"全片时间轴任务创建失败：{exc}") from exc
+
+
+def _dubbing_job_response(job: dict[str, Any]) -> dict[str, Any]:
+    """Add browser URLs for completed generated files without changing the manifest."""
+
+    response = dict(job)
+    output_root = Path(str(response.get("output_path", "")))
+    generation = response.get("generation")
+    if isinstance(generation, dict):
+        urls: dict[str, str] = {}
+        for key in ("voice_track", "video"):
+            value = generation.get(key)
+            if not value:
+                continue
+            try:
+                relative = Path(str(value)).resolve().relative_to(output_root.resolve())
+            except ValueError:
+                continue
+            urls[key] = f"/api/dubbing/jobs/{response['job_id']}/files/{relative.as_posix()}"
+        if urls:
+            response["generation_urls"] = urls
+    return response
+
+
+@app.get("/api/dubbing/jobs/{job_id}")
+def dubbing_job(job_id: str) -> dict[str, Any]:
+    try:
+        return _dubbing_job_response(dubbing.get_job(job_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/dubbing/jobs/{job_id}/timeline")
+def dubbing_timeline(job_id: str) -> dict[str, Any]:
+    try:
+        return dubbing.get_timeline(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/dubbing/jobs/{job_id}/speakers/{speaker_id}/reference")
+async def dubbing_reference(
+    job_id: str,
+    speaker_id: str,
+    reference_media: UploadFile = File(...),
+    reference_start: float = Form(0.0),
+    reference_seconds: float = Form(10.0),
+    noise_reduction: float = Form(0.0),
+    trim_leading_silence: bool = Form(True),
+    reference_text: str = Form(""),
+) -> dict[str, Any]:
+    """Attach a manually chosen audio/video excerpt to one diarized speaker."""
+
+    try:
+        dubbing.get_job(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    original = safe_name(reference_media.filename or "未命名参考媒体", 120)
+    suffix = Path(original).suffix.lower() or ".bin"
+    upload_id = uuid.uuid4().hex
+    source = DUBBING_WORK / job_id / "reference-uploads" / f"{upload_id}{suffix}"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    with source.open("wb") as stream:
+        while True:
+            chunk = await reference_media.read(1024 * 1024)
+            if not chunk:
+                break
+            stream.write(chunk)
+    try:
+        probe(source)
+        return dubbing.attach_reference(
+            job_id,
+            speaker_id=speaker_id,
+            source=source,
+            original_filename=original,
+            start_sec=max(0.0, float(reference_start)),
+            seconds=max(1.0, min(30.0, float(reference_seconds))),
+            noise_reduction=max(0.0, min(30.0, float(noise_reduction))),
+            trim_leading_silence=bool(trim_leading_silence),
+            reference_text=str(reference_text or "").strip(),
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"参考音色绑定失败：{exc}") from exc
+
+
+@app.post("/api/dubbing/jobs/{job_id}/generate", status_code=202)
+def start_dubbing_generation(job_id: str, request: DubbingGenerateRequest) -> dict[str, Any]:
+    try:
+        edits = [
+            item.model_dump() if hasattr(item, "model_dump") else item.dict()
+            for item in request.edits
+        ]
+        return dubbing.start_generation(
+            job_id,
+            edits=edits,
+            selected_ids=request.selected_ids,
+            mode=request.mode,
+            speed=request.speed,
+            adaptive_speed=request.adaptive_speed,
+            fit_to_slot=request.fit_to_slot,
+            prompt_instruction=request.prompt_instruction,
+            text_frontend=request.text_frontend,
+            seed=request.seed,
+            export_video=request.export_video,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"批量配音任务创建失败：{exc}") from exc
+
+
+@app.get("/api/dubbing/jobs/{job_id}/files/{name:path}")
+def dubbing_file(job_id: str, name: str) -> FileResponse:
+    try:
+        path = dubbing.file_for_job(job_id, name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media_type, filename=path.name)
 
 
 @app.get("/api/speaker/{asset_id}/sample")

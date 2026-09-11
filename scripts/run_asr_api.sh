@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL_DIR="/home/administrator/models/Qwen3-ASR-0.6B"
+ALIGNER_DIR="/home/administrator/models/Qwen3-ForcedAligner-0.6B"
 IMAGE="ragflow-qwen-asr:0.0.6"
 CONTAINER="ragflow-model-asr-api"
 PORT="${ASR_API_PORT:-18763}"
@@ -23,8 +24,10 @@ docker run -d \
   -e TRANSFORMERS_OFFLINE=1 \
   -e HF_HUB_OFFLINE=1 \
   -e ASR_MODEL_DIR=/models/Qwen3-ASR-0.6B \
+  -e FORCED_ALIGNER_DIR=/models/Qwen3-ForcedAligner-0.6B \
   -v "$PROJECT_DIR:/app:ro" \
   -v "$MODEL_DIR:/models/Qwen3-ASR-0.6B:ro" \
+  -v "$ALIGNER_DIR:/models/Qwen3-ForcedAligner-0.6B:ro" \
   -w /app \
   --entrypoint python3 \
   "$IMAGE" \

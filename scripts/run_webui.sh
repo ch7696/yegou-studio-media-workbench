@@ -6,6 +6,7 @@ MANAGED_DIR="/home/administrator/ragflow-managed"
 STATE_DIR="$MANAGED_DIR/state/speaker-webui"
 MODEL_DIR="/home/administrator/models/Fun-CosyVoice3-0.5B"
 ASR_DIR="/home/administrator/models/Qwen3-ASR-0.6B"
+ALIGNER_DIR="/home/administrator/models/Qwen3-ForcedAligner-0.6B"
 DIAR_DIR="/home/administrator/3D-Speaker"
 COSY_DIR="/home/administrator/cosyvoice/CosyVoice"
 CACHE_DIR="$MANAGED_DIR/state/cosyvoice-cache"
@@ -40,6 +41,7 @@ exec docker run -d \
   -e VOICE_DEFAULT_OUTPUT=/mnt/f/voice \
   -e COSYVOICE_MODEL_DIR=/models/Fun-CosyVoice3-0.5B \
   -e QWEN_ASR_MODEL_DIR=/models/Qwen3-ASR-0.6B \
+  -e QWEN_FORCED_ALIGNER_DIR=/models/Qwen3-ForcedAligner-0.6B \
   -e THREE_D_SPEAKER_REPO=/opt/3D-Speaker \
   -e COSYVOICE_REPO=/opt/CosyVoice \
   -v "$PROJECT_DIR:/app:ro" \
@@ -47,6 +49,7 @@ exec docker run -d \
   -v "$CACHE_DIR:/root/.cache" \
   -v "$MODEL_DIR:/models/Fun-CosyVoice3-0.5B:ro" \
   -v "$ASR_DIR:/models/Qwen3-ASR-0.6B:ro" \
+  -v "$ALIGNER_DIR:/models/Qwen3-ForcedAligner-0.6B:ro" \
   -v "$DIAR_DIR:/opt/3D-Speaker:ro" \
   -v "$COSY_DIR:/opt/CosyVoice:ro" \
   -v /mnt:/mnt \
