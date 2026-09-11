@@ -43,6 +43,11 @@ def index() -> str:
     return Path("/app/web/index.html").read_text(encoding="utf-8")
 
 
+@app.get("/assets", response_class=HTMLResponse)
+def assets_page() -> str:
+    return Path("/app/web/assets.html").read_text(encoding="utf-8")
+
+
 @app.get("/tts", response_class=HTMLResponse)
 def direct_tts_page() -> str:
     return Path("/app/web/tts.html").read_text(encoding="utf-8")
