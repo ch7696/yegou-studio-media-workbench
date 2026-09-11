@@ -42,3 +42,11 @@ class DubbingGenerateRequest(BaseModel):
     text_frontend: bool = True
     seed: int = Field(default=0, ge=0, le=2_147_483_647)
     export_video: bool = True
+    target_speaker_id: str = Field(default="all", min_length=1, max_length=80)
+    target_original_volume: float = Field(default=0.0, ge=0.0, le=1.5)
+    other_speaker_volume: float = Field(default=1.0, ge=0.0, le=1.5)
+    background_volume: float = Field(default=1.0, ge=0.0, le=2.0)
+
+
+class DubbingTimelineSaveRequest(BaseModel):
+    edits: list[DubbingSegmentEdit] = Field(default_factory=list)

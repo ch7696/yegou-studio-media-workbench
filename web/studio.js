@@ -10,6 +10,7 @@ const endInput = document.getElementById('segment-end');
 const selection = document.getElementById('selection');
 const waveform = document.getElementById('waveform');
 const timelineStatus = document.getElementById('timeline-status');
+const speakerFilter = document.getElementById('speaker-filter');
 const referenceText = document.getElementById('reference-text');
 const transcriptStatus = document.getElementById('transcript-status');
 const ttsMode = document.getElementById('tts-mode');
@@ -19,8 +20,9 @@ const referenceStartInput = document.getElementById('reference-start');
 const referenceSecondsInput = document.getElementById('reference-seconds');
 const selectedSpeakerLabel = document.getElementById('selected-speaker');
 const analyzeButton = document.getElementById('analyze-btn');
-const sentenceBatchButton = document.getElementById('sentence-batch-btn');
 const fullBatchButton = document.getElementById('full-batch-btn');
+const saveTimelineButton = document.getElementById('save-timeline-btn');
+const targetSpeaker = document.getElementById('target-speaker');
 
 let sourceFile = null;
 let referenceSourceFile = null;
@@ -57,6 +59,59 @@ async function jsonResponse(response) {
   try { result = await response.json(); } catch (_) {}
   if (!response.ok) throw Error(result.detail || result.message || `请求失败（${response.status}）`);
   return result;
+}
+
+function addOption(select, value, label) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = label;
+  select.appendChild(option);
+}
+
+function updateStemStatus(timeline) {
+  const stems = timeline?.audio_stems || {};
+  const vocalChip = document.getElementById('vocal-chip');
+  const backgroundChip = document.getElementById('background-chip');
+  const status = document.getElementById('separate-status');
+  if (stems.available) {
+    if (vocalChip) { vocalChip.className = 'chip ok'; vocalChip.textContent = '已生成'; }
+    if (backgroundChip) { backgroundChip.className = 'chip ok'; backgroundChip.textContent = '已生成'; }
+    if (status) setStatus(status, '两路音轨已生成：人声用于说话人筛选，背景 / 音效会在导出时保留。');
+  } else if (stems.error) {
+    if (vocalChip) { vocalChip.className = 'chip warn'; vocalChip.textContent = '已回退'; }
+    if (backgroundChip) { backgroundChip.className = 'chip warn'; backgroundChip.textContent = '未分离'; }
+    if (status) setStatus(status, `两路分离未成功，已保留可用时间轴。原因：${stems.error}`, 'warn');
+  } else {
+    if (vocalChip) { vocalChip.className = 'chip warn'; vocalChip.textContent = '待分析'; }
+    if (backgroundChip) { backgroundChip.className = 'chip warn'; backgroundChip.textContent = '待分析'; }
+    if (status) setStatus(status, '分析时使用两路分离：人声用于说话人时间轴，背景路用于最终混音。');
+  }
+}
+
+function populateSpeakers() {
+  const speakers = analysisTimeline?.speakers || [];
+  const oldFilter = speakerFilter.value || 'all';
+  const oldTarget = targetSpeaker.value || '';
+
+  speakerFilter.innerHTML = '';
+  addOption(speakerFilter, 'all', '全部说话人');
+  speakers.forEach(item => addOption(
+    speakerFilter,
+    item.speaker_id,
+    `${item.speaker_label || item.speaker_id} · ${Number(item.speech_duration_sec || 0).toFixed(1)} 秒`,
+  ));
+  speakerFilter.value = speakers.some(item => item.speaker_id === oldFilter) ? oldFilter : 'all';
+
+  targetSpeaker.innerHTML = '';
+  addOption(targetSpeaker, '', speakers.length ? '请选择要替换的说话人' : '请先分析并选择说话人');
+  if (speakers.length) addOption(targetSpeaker, 'all', '全部已绑定说话人（谨慎）');
+  speakers.forEach(item => {
+    const ref = item.reference_audio ? ' · 已绑定音色' : ' · 待绑定音色';
+    addOption(targetSpeaker, item.speaker_id, `${item.speaker_label || item.speaker_id}${ref}`);
+  });
+  const targetStillExists = oldTarget === 'all' || speakers.some(item => item.speaker_id === oldTarget);
+  targetSpeaker.value = targetStillExists ? oldTarget : '';
+  updateStemStatus(analysisTimeline);
 }
 
 function clampSelection() {
@@ -124,6 +179,7 @@ function resetAnalysis() {
   analysisTimeline = null;
   segments = [];
   selectedIndex = -1;
+  populateSpeakers();
   renderSegments();
   selectedSpeakerLabel.textContent = '还没有选择说话人';
   document.getElementById('selected-chip').textContent = '未选择';
@@ -191,7 +247,15 @@ function renderSegments() {
     root.innerHTML = '<div class="empty">分析后，识别出的说话片段会按时间戳显示在这里。</div>';
     return;
   }
-  root.innerHTML = segments.map((item, index) => {
+  const filter = speakerFilter.value || 'all';
+  const visible = segments
+    .map((item, index) => ({item, index}))
+    .filter(({item}) => filter === 'all' || item.speaker_id === filter);
+  if (!visible.length) {
+    root.innerHTML = '<div class="empty">这个筛选条件下没有台词片段。</div>';
+    return;
+  }
+  root.innerHTML = visible.map(({item, index}) => {
     const selected = index === selectedIndex ? 'selected' : '';
     const speaker = item.speaker_label || item.speaker_id || '未确定说话人';
     const confidence = Number(item.speaker_confidence || 0).toFixed(2);
@@ -239,8 +303,7 @@ async function startAnalysis() {
     setStatus(timelineStatus, '请先选择视频或音频。', 'warn');
     return;
   }
-  const buttons = [analyzeButton, sentenceBatchButton];
-  buttons.forEach(button => { if (button) button.disabled = true; });
+  analyzeButton.disabled = true;
   setStatus(timelineStatus, '正在提交全片分析任务…');
   const data = new FormData();
   data.append('media', sourceFile);
@@ -260,16 +323,42 @@ async function startAnalysis() {
   } catch (error) {
     setStatus(timelineStatus, error.message || String(error), 'error');
   } finally {
-    buttons.forEach(button => { if (button) button.disabled = false; });
+    analyzeButton.disabled = false;
   }
 }
 
 async function refreshTimeline() {
   analysisTimeline = await jsonResponse(await fetch(`/api/dubbing/jobs/${analysisJobId}/timeline`));
   segments = analysisTimeline.segments || [];
+  populateSpeakers();
   if (segments.length) updateSelectedSegment(0);
   else renderSegments();
   markStep(3);
+}
+
+async function saveTimelineEdits(showMessage = true) {
+  if (!analysisJobId || !segments.length) {
+    if (showMessage) setStatus(document.getElementById('batch-status'), '还没有可暂存的时间轴。', 'warn');
+    return false;
+  }
+  const result = await jsonResponse(await fetch(`/api/dubbing/jobs/${analysisJobId}/timeline`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({edits: segments.map(item => ({
+      segment_id: item.segment_id,
+      text: item.text,
+      dubbing_text: item.dubbing_text,
+      speaker_id: item.speaker_id,
+      start_sec: item.start_sec,
+      end_sec: item.end_sec,
+    }))}),
+  }));
+  analysisTimeline = result.timeline || analysisTimeline;
+  segments = analysisTimeline?.segments || segments;
+  populateSpeakers();
+  renderSegments();
+  if (showMessage) setStatus(timelineStatus, `时间轴已暂存：${result.updated_count || 0} 个片段。`);
+  return true;
 }
 
 function showGenerationFiles(job) {
@@ -277,13 +366,19 @@ function showGenerationFiles(job) {
   if (!root) return;
   const urls = job.generation_urls || {};
   const links = [];
-  if (urls.voice_track) links.push(`<a href="${esc(urls.voice_track)}" target="_blank">试听整段配音人声</a>`);
+  if (urls.voice_track) links.push(`<a href="${esc(urls.voice_track)}" target="_blank">试听新配音人声</a>`);
+  if (urls.mix_track) links.push(`<a href="${esc(urls.mix_track)}" target="_blank">试听最终混音</a>`);
   if (urls.video) links.push(`<a href="${esc(urls.video)}" target="_blank">打开配音视频</a>`);
   root.innerHTML = links.join(' · ');
   if (urls.video) {
     video.src = `${urls.video}?t=${Date.now()}`;
     video.hidden = false;
     audio.hidden = true;
+    empty.hidden = true;
+  } else if (urls.mix_track) {
+    audio.src = `${urls.mix_track}?t=${Date.now()}`;
+    audio.hidden = false;
+    video.hidden = true;
     empty.hidden = true;
   }
 }
@@ -301,12 +396,14 @@ async function pollJob(kind) {
     if (kind === 'analysis') {
       await refreshTimeline();
       const quality = job.quality || {};
-      setStatus(timelineStatus, `分析完成：${job.speaker_count || 0} 个说话人，${job.segment_count || 0} 个台词片段。输出：${job.output_dir || 'F:\\voice'}`);
-      setStatus(document.getElementById('batch-status'), '时间轴已生成。逐个选择说话人并绑定参考音色，然后点击“开始批量配音”。');
-      if (quality.low_confidence_segment_count) setStatus(document.getElementById('batch-status'), `时间轴已生成，但有 ${quality.low_confidence_segment_count} 个片段覆盖度偏低，建议试听或调整说话人。`, 'warn');
+      const stems = analysisTimeline?.audio_stems?.available ? '人声 / 背景两路已生成' : '两路分离回退，时间轴仍可用';
+      setStatus(timelineStatus, `分析完成：${job.speaker_count || 0} 个说话人，${job.segment_count || 0} 个台词片段；${stems}。输出：${job.output_dir || 'F:\\voice'}`);
+      let message = '请选择目标说话人，绑定参考音色，修改台词后点击“暂存时间轴”和“替换并导出”。';
+      if (quality.low_confidence_segment_count) message += `\n有 ${quality.low_confidence_segment_count} 个片段覆盖度偏低，建议试听或调整筛选。`;
+      setStatus(document.getElementById('batch-status'), message, quality.low_confidence_segment_count ? 'warn' : '');
     } else {
       showGenerationFiles(job);
-      setStatus(document.getElementById('batch-status'), `批量配音完成：${job.generation_segment_count || job.generation?.segments?.length || 0} 个片段已合成。`, '');
+      setStatus(document.getElementById('batch-status'), `替换完成：${job.generation_segment_count || job.generation?.segments?.length || 0} 个片段已合成，背景 / 音效已参与混音。`, '');
       markStep(5);
     }
     return;
@@ -342,8 +439,13 @@ async function attachReference() {
   data.append('reference_text', ttsMode.value === 'zero_shot' ? referenceText.value : '');
   try {
     const result = await jsonResponse(await fetch(`/api/dubbing/jobs/${analysisJobId}/speakers/${encodeURIComponent(item.speaker_id)}/reference`, { method: 'POST', body: data }));
+    const selectedId = item.segment_id;
     analysisTimeline = await jsonResponse(await fetch(`/api/dubbing/jobs/${analysisJobId}/timeline`));
     segments = analysisTimeline.segments || segments;
+    populateSpeakers();
+    selectedIndex = Math.max(0, segments.findIndex(value => value.segment_id === selectedId));
+    targetSpeaker.value = item.speaker_id;
+    speakerFilter.value = item.speaker_id;
     updateSelectedSegment(selectedIndex);
     referenceText.value = result.reference_text || '';
     voiceFileName.value = `${file.name}（${result.speaker_label}）`;
@@ -402,45 +504,61 @@ async function startGeneration() {
     setStatus(document.getElementById('batch-status'), '请先点击“分析整段媒体”，生成可编辑时间轴。', 'warn');
     return;
   }
-  segments.forEach((item, index) => {
-    const input = document.querySelector(`.segment-edit[data-index="${index}"]`);
-    if (input) item.dubbing_text = input.value.trim();
-  });
+  const selectedTarget = document.getElementById('export-mode').value === 'all' ? 'all' : targetSpeaker.value;
+  if (!selectedTarget) {
+    setStatus(document.getElementById('batch-status'), '请先选择要替换的说话人。', 'warn');
+    return;
+  }
+  if (selectedTarget !== 'all') {
+    const speaker = (analysisTimeline.speakers || []).find(item => item.speaker_id === selectedTarget);
+    if (!speaker?.reference_audio) {
+      setStatus(document.getElementById('batch-status'), '目标说话人还没有绑定参考音色，请先在右侧绑定。', 'warn');
+      return;
+    }
+  }
   const button = fullBatchButton;
   button.disabled = true;
-  setStatus(document.getElementById('batch-status'), '正在提交批量配音任务…');
-  const payload = {
-    edits: segments.map(item => ({
-      segment_id: item.segment_id,
-      text: item.text,
-      dubbing_text: item.dubbing_text,
-      speaker_id: item.speaker_id,
-      start_sec: item.start_sec,
-      end_sec: item.end_sec,
-    })),
-    selected_ids: null,
-    mode: ttsMode.value,
-    speed: Number(document.getElementById('tts-speed').value) || 1,
-    adaptive_speed: document.getElementById('adaptive-speed').checked,
-    fit_to_slot: document.getElementById('fit-duration').checked,
-    prompt_instruction: 'You are a helpful assistant.',
-    text_frontend: true,
-    seed: Number(document.getElementById('tts-seed').value) || 0,
-    export_video: document.getElementById('export-video').checked,
-  };
+  if (saveTimelineButton) saveTimelineButton.disabled = true;
+  setStatus(document.getElementById('batch-status'), '正在暂存时间轴并提交替换任务…');
   try {
+    await saveTimelineEdits(false);
+    const payload = {
+      edits: segments.map(item => ({
+        segment_id: item.segment_id,
+        text: item.text,
+        dubbing_text: item.dubbing_text,
+        speaker_id: item.speaker_id,
+        start_sec: item.start_sec,
+        end_sec: item.end_sec,
+      })),
+      selected_ids: null,
+      target_speaker_id: selectedTarget,
+      mode: ttsMode.value,
+      speed: Number(document.getElementById('tts-speed').value) || 1,
+      adaptive_speed: document.getElementById('adaptive-speed').checked,
+      fit_to_slot: document.getElementById('fit-duration').checked,
+      prompt_instruction: 'You are a helpful assistant.',
+      text_frontend: true,
+      seed: Number(document.getElementById('tts-seed').value) || 0,
+      export_video: document.getElementById('export-video').checked,
+      target_original_volume: Number(document.getElementById('target-original-volume').value) || 0,
+      other_speaker_volume: Number(document.getElementById('other-speaker-volume').value) || 0,
+      background_volume: Number(document.getElementById('background-volume').value) || 0,
+    };
     const job = await jsonResponse(await fetch(`/api/dubbing/jobs/${analysisJobId}/generate`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload),
     }));
     markStep(4);
-    setStatus(document.getElementById('batch-status'), `批量任务 ${job.generation_id || ''} 已开始，逐句生成中…`);
+    const label = selectedTarget === 'all' ? '全部已绑定说话人' : targetSpeaker.options[targetSpeaker.selectedIndex]?.text;
+    setStatus(document.getElementById('batch-status'), `替换任务 ${job.generation_id || ''} 已开始：${label}。`);
     await pollJob('generation');
   } catch (error) {
     setStatus(document.getElementById('batch-status'), error.message || String(error), 'error');
   } finally {
     button.disabled = false;
+    if (saveTimelineButton) saveTimelineButton.disabled = false;
   }
 }
 
@@ -458,9 +576,20 @@ referenceFileInput.addEventListener('change', () => {
 ['dragleave', 'drop'].forEach(event => drop.addEventListener(event, e => { e.preventDefault(); drop.classList.remove('drag'); }));
 drop.addEventListener('drop', e => updateMedia(e.dataTransfer.files[0]));
 analyzeButton.addEventListener('click', startAnalysis);
-sentenceBatchButton.addEventListener('click', startAnalysis);
 fullBatchButton.addEventListener('click', startGeneration);
-document.getElementById('batch-btn').addEventListener('click', startGeneration);
+saveTimelineButton.addEventListener('click', () => saveTimelineEdits(true).catch(error => setStatus(timelineStatus, error.message || String(error), 'error')));
+speakerFilter.addEventListener('change', renderSegments);
+targetSpeaker.addEventListener('change', () => {
+  if (targetSpeaker.value && targetSpeaker.value !== 'all') {
+    speakerFilter.value = targetSpeaker.value;
+    const index = segments.findIndex(item => item.speaker_id === targetSpeaker.value);
+    if (index >= 0) updateSelectedSegment(index);
+    else renderSegments();
+  } else {
+    speakerFilter.value = 'all';
+    renderSegments();
+  }
+});
 document.getElementById('transcript-btn').addEventListener('click', fillTranscript);
 document.getElementById('attach-reference-btn').addEventListener('click', attachReference);
 document.getElementById('select-all-btn').addEventListener('click', () => {
@@ -468,7 +597,7 @@ document.getElementById('select-all-btn').addEventListener('click', () => {
   startInput.value = 0;
   endInput.value = mediaDuration.toFixed(1).replace(/\.0$/, '');
   clampSelection();
-  setStatus(timelineStatus, '已选择整段媒体；点击“分析整段媒体”会拆分完整时间轴。', 'warn');
+  setStatus(timelineStatus, '已选择整段媒体；参考音色会使用整段中的前 30 秒上限。', 'warn');
 });
 document.getElementById('use-media-btn').addEventListener('click', () => {
   referenceSourceFile = null;
@@ -478,11 +607,6 @@ document.getElementById('use-media-btn').addEventListener('click', () => {
     fillTranscript();
   }
 });
-document.getElementById('separate-btn').addEventListener('click', () => setStatus(
-  document.getElementById('separate-status'),
-  '首版时间轴和配音流程已可用；环境声 / BGM 分离模型暂未启用，批量导出会替换原音轨。',
-  'warn',
-));
 document.getElementById('segments').addEventListener('click', event => {
   const row = event.target.closest('.segment');
   if (!row) return;
@@ -494,7 +618,18 @@ document.getElementById('segments').addEventListener('input', event => {
   const input = event.target.closest('.segment-edit');
   if (!input) return;
   const item = segments[Number(input.dataset.index)];
-  if (item) item.dubbing_text = input.value;
+  if (item) {
+    item.dubbing_text = input.value;
+    if (Number(input.dataset.index) === selectedIndex) document.getElementById('target-text').value = input.value;
+  }
+});
+document.getElementById('target-text').addEventListener('input', event => {
+  const item = selectedSegment();
+  if (item) {
+    item.dubbing_text = event.target.value;
+    const input = document.querySelector(`.segment-edit[data-index="${selectedIndex}"]`);
+    if (input) input.value = event.target.value;
+  }
 });
 ttsMode.addEventListener('change', () => {
   referenceText.disabled = false;
@@ -503,5 +638,6 @@ ttsMode.addEventListener('change', () => {
 });
 document.getElementById('preview-btn').addEventListener('click', generatePreview);
 
+populateSpeakers();
 drawWaveform();
 clampSelection();

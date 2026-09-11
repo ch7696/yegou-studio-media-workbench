@@ -12,7 +12,8 @@ app/
   diarization.py      3D-Speaker 说话人识别
   asr.py              Qwen3-ASR 参考台词和词级时间戳
   asr_server.py       隔离的 Qwen3-ASR + ForcedAligner 服务
-  dubbing.py          全片时间轴、参考音色绑定、批量配音和视频导出
+  dubbing.py          全片时间轴、参考音色绑定、说话人替换、两路混音和视频导出
+  separation.py       Hybrid Demucs 人声 / 背景两路分离
   identification.py   识别链路和资产清单
   tts.py              CosyVoice3 官方调用封装
   main.py             FastAPI 接口
@@ -39,13 +40,15 @@ BUILD_IMAGE=1 bash /home/administrator/voice-asset-workbench/scripts/run_webui.s
 
 页面地址：`http://127.0.0.1:7866/`。
 
-音视频重新配音工作台地址：`http://127.0.0.1:7866/studio`。操作顺序是：上传完整媒体，点击“分析整段媒体”，选择时间轴中的说话人，绑定参考音频或视频，检查并修改每句配音台词，最后点击“开始批量配音”。页面显示的分析人数、清洁强度、重叠检测、参考片段、语速、自适应时长、严格时长和视频导出都对应后端参数。
+音视频重新配音工作台地址：`http://127.0.0.1:7866/studio`。操作顺序是：上传完整媒体，点击“分析整段媒体”，按说话人筛选时间轴，绑定目标说话人的参考音频或视频，检查并修改台词，点击“暂存时间轴”，最后点击“替换选中说话人的全部台词并导出”。分析会自动生成一条人声轨和一条背景 / 音效轨；导出时默认压低目标说话人的原声、保留其他人声和背景 / 音效。
 
 独立 Qwen3-ASR 服务使用本机端口 `18763`，由工作台内部调用；日常操作只需要打开上面的 7866 页面。
 
 直接 TTS 工作台地址：`http://127.0.0.1:7866/tts`。它接收音频或视频，按起点和片段时长抽取一段参考音频，然后直接生成语音；不会调用 3D-Speaker 或说话人聚类。默认的“无参考台词复刻”走官方 `inference_cross_lingual`；Zero-shot 会自动调用 Qwen3-ASR 填入参考台词，用户可以修改后再生成；Instruct2 只需要填写 `instruct_text`。
 
-重新配音工作台会把结果写入 `F:\voice\<原文件名>__全片配音项目__<任务号>`，其中包含 `时间轴.json`、`说话人时间轴.md`、参考音色、每句配音片段、整段配音人声和可选的 `配音视频.mp4`。首版视频导出替换原音轨，环境声 / BGM 分离保留为后续入口。
+重新配音工作台会把结果写入 `F:\voice\<原文件名>__全片配音项目__<任务号>`，其中包含 `时间轴.json`、`说话人时间轴.md`、`音频/人声.wav`、`音频/背景声.wav`、参考音色、每句配音片段、`新配音人声.wav`、`配音混音.wav` 和可选的 `配音视频.mp4`。原始文件不会被覆盖。
+
+当前分离采用 [Demucs 官方仓库](https://github.com/facebookresearch/demucs) 对应的 Hybrid Demucs 权重，将 `vocals` 保留为人声，将 `drums`、`bass` 和 `other` 合成为背景 / 音效。它适合当前演示素材和大多数单人说话场景；两个真人在同一时刻重叠说话时，仍然会落在同一条人声轨里，不能只从混音中精确抽出其中一个人的原声。
 
 ## TTS 参数依据
 
@@ -65,7 +68,7 @@ CosyVoice3 权重上会导致语音生成乱码。
 | `seed` | `set_all_random_seed` | 官方 WebUI 使用的随机种子，默认 `0` |
 | 严格适配目标时长 | ffmpeg 后处理 | 不是 CosyVoice 参数；批量配音页面默认开启 |
 
-批量配音会先按目标时间槽估算新的 `speed`，再在 0.5–2.0 范围内重新生成；若仍然偏长或偏短，使用 ffmpeg 做最后的时长适配，并在质量报告中留下警告。每个说话人必须先绑定参考音色；Zero-shot 模式还需要参考音频对应的台词，页面默认自动识别并允许手工修改。
+批量配音会先按目标时间槽估算新的 `speed`，再在 0.5–2.0 范围内重新生成；若仍然偏长或偏短，使用 ffmpeg 做最后的时长适配，并在质量报告中留下警告。每个要被替换的说话人必须先绑定参考音色；Zero-shot 模式还需要参考音频对应的台词，页面默认自动识别并允许手工修改。页面的“目标说话人原声比例”“其他说话人原声比例”和“背景 / 音效比例”用于控制最终混音，默认值分别为 `0`、`1`、`1`。
 
 CosyVoice3 zero-shot 的提示词和音频按官方示例直接传入 `inference_zero_shot`，组织为：
 `You are a helpful assistant.<|endofprompt|>参考台词`。
@@ -86,8 +89,9 @@ CosyVoice2 示例中的 `add_zero_shot_spk` 缓存调用没有套用到 CosyVoic
 - `POST /api/dubbing/analyze`：创建全片说话人和词级时间轴分析任务。
 - `GET /api/dubbing/jobs/{job_id}`：查询分析或批量配音任务状态。
 - `GET /api/dubbing/jobs/{job_id}/timeline`：获取可编辑时间轴 JSON。
+- `POST /api/dubbing/jobs/{job_id}/timeline`：暂存台词、说话人和时间修改。
 - `POST /api/dubbing/jobs/{job_id}/speakers/{speaker_id}/reference`：绑定一个说话人的参考音频或视频。
-- `POST /api/dubbing/jobs/{job_id}/generate`：按时间轴逐句生成配音并导出整段音轨 / 视频。
+- `POST /api/dubbing/jobs/{job_id}/generate`：按目标说话人筛选时间轴，逐句生成配音并导出两路混音 / 视频。
 - `GET /api/dubbing/jobs/{job_id}/files/{path}`：访问任务输出文件。
 - `GET /api/speaker/{asset_id}/sample`：获取清洁参考样本。
 - `GET /api/speaker/{asset_id}/latest`：获取最近一次试音。

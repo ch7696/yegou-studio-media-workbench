@@ -21,6 +21,7 @@ from .audio import extract_clean, fit_audio
 from .config import DUBBING_JOBS, DUBBING_WORK, RATE
 from .direct_tts import extract_reference
 from .diarization import diarize
+from .separation import separate_audio, unload_separation
 from .utils import digest, duration, probe, safe_name, save_json, to_windows_path, to_wsl_path
 
 
@@ -290,6 +291,8 @@ def analyse_timeline(
     """Analyze one complete media file and create an editable dubbing timeline."""
 
     clean_audio = work_root / "音频" / "清洁音轨.wav"
+    vocal_audio = work_root / "音频" / "人声.wav"
+    background_audio = work_root / "音频" / "背景声.wav"
     extract_clean(
         source,
         clean_audio,
@@ -297,8 +300,29 @@ def analyse_timeline(
         trim_leading_silence=False,
     )
     clean_duration = max(0.5, duration(clean_audio))
+    separation: dict[str, Any]
+    try:
+        separation = separate_audio(clean_audio, vocal_audio, background_audio)
+        analysis_audio = vocal_audio
+    except Exception as exc:
+        # Keep the timeline usable if a model download or an unusual codec
+        # prevents separation.  The manifest records the fallback explicitly.
+        separation = {
+            "available": False,
+            "model": "HDEMUCS_HIGH_MUSDB",
+            "error": f"{type(exc).__name__}: {exc}",
+            "sample_rate": RATE,
+        }
+        shutil.copy2(clean_audio, vocal_audio)
+        sf.write(str(background_audio), np.zeros(max(1, int(round(clean_duration * RATE))), dtype=np.float32), RATE)
+        analysis_audio = vocal_audio
+    finally:
+        # CosyVoice is loaded later in the same container.  Do not keep
+        # Demucs resident after the analysis phase on a 16GB card.
+        unload_separation()
+
     raw_diarization = diarize(
-        clean_audio,
+        analysis_audio,
         speaker_num if int(speaker_num) > 0 else None,
         include_overlap=bool(include_overlap),
     )
@@ -325,7 +349,7 @@ def analyse_timeline(
             }
         )
 
-    asr_result = transcribe_detailed([clean_audio], return_time_stamps=True)[0]
+    asr_result = transcribe_detailed([analysis_audio], return_time_stamps=True)[0]
     timestamps = _decorate_timestamps(
         list(asr_result.get("time_stamps", []) or []),
         str(asr_result.get("text", "") or ""),
@@ -344,6 +368,17 @@ def analyse_timeline(
         "source_sha256": digest(source),
         "duration_sec": round(clean_duration, 3),
         "audio_path": str(clean_audio),
+        "analysis_audio_path": str(analysis_audio),
+        "audio_stems": {
+            "model": separation.get("model", "HDEMUCS_HIGH_MUSDB"),
+            "available": bool(separation.get("available")),
+            "error": separation.get("error", ""),
+            "clean_path": str(clean_audio),
+            "vocal_path": str(vocal_audio),
+            "background_path": str(background_audio),
+            "sample_rate": RATE,
+            "duration_sec": round(clean_duration, 3),
+        },
         "speakers": speaker_items,
         "diarization": {
             "model": "3D-Speaker CAMPPlus + FSMN-VAD",
@@ -365,7 +400,7 @@ def analyse_timeline(
             "unassigned_segment_count": sum(1 for item in segments if item["speaker_id"] == "unknown"),
             "notes": [
                 "speaker_confidence 是时间轴覆盖度，不是模型原生概率。",
-                "原始音轨尚未做专用人声/环境声分离，首版导出会生成独立配音轨。",
+                "人声与其余背景已先分成两路；两个人声同时说话时仍按同一人声路处理。",
             ],
         },
         "generations": [],
@@ -443,6 +478,22 @@ def _run_analysis(job_id: str, source: Path, work_root: Path, output: Path) -> N
         )
         shutil.copy2(work_root / "时间轴.json", output / "时间轴.json")
         shutil.copy2(work_root / "说话人时间轴.md", output / "说话人时间轴.md")
+        stems_output = output / "音频"
+        stems_output.mkdir(parents=True, exist_ok=True)
+        stem_exports: dict[str, str] = {}
+        for key, filename in (
+            ("clean_path", "清洁混合音轨.wav"),
+            ("vocal_path", "人声.wav"),
+            ("background_path", "背景声.wav"),
+        ):
+            source_path = Path(str(timeline["audio_stems"].get(key, "")))
+            if source_path.exists():
+                target_path = stems_output / filename
+                shutil.copy2(source_path, target_path)
+                stem_exports[key] = to_windows_path(target_path)
+        timeline["audio_stems"]["exports"] = stem_exports
+        save_json(work_root / "时间轴.json", timeline)
+        shutil.copy2(work_root / "时间轴.json", output / "时间轴.json")
         _update_job(
             job_id,
             status="done",
@@ -478,6 +529,42 @@ def get_timeline(job_id: str) -> dict[str, Any]:
 
     _, timeline = _load_timeline(job_id)
     return timeline
+
+
+def save_timeline_edits(job_id: str, edits: list[dict[str, Any]]) -> dict[str, Any]:
+    """Persist editor changes before a generation job is queued."""
+
+    job, timeline = _load_timeline(job_id)
+    segment_map = {str(item.get("segment_id")): item for item in timeline.get("segments", [])}
+    speaker_ids = {str(item.get("speaker_id")) for item in timeline.get("speakers", [])}
+    updated = 0
+    for patch in edits:
+        segment_id = str(patch.get("segment_id") or "")
+        if not segment_id or segment_id not in segment_map:
+            raise ValueError(f"找不到台词片段：{segment_id or '空编号'}")
+        item = segment_map[segment_id]
+        for key in ("text", "dubbing_text", "speaker_id", "start_sec", "end_sec"):
+            if key in patch and patch[key] is not None:
+                item[key] = patch[key]
+        if str(item.get("speaker_id") or "") not in speaker_ids and item.get("speaker_id") != "unknown":
+            raise ValueError(f"片段 {segment_id} 关联了不存在的说话人")
+        item["text"] = str(item.get("text", "") or "").strip()
+        item["dubbing_text"] = str(item.get("dubbing_text", item["text"]) or item["text"]).strip()
+        try:
+            item["start_sec"] = max(0.0, float(item["start_sec"]))
+            item["end_sec"] = float(item["end_sec"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"片段 {segment_id} 的时间无效") from exc
+        if item["end_sec"] <= item["start_sec"]:
+            raise ValueError(f"片段 {segment_id} 的结束时间必须大于开始时间")
+        if not item["dubbing_text"]:
+            raise ValueError(f"片段 {segment_id} 的配音台词为空")
+        item["original_duration_sec"] = round(item["end_sec"] - item["start_sec"], 3)
+        updated += 1
+    timeline["updated_at"] = _now()
+    save_json(Path(str(job["timeline_path"])), timeline)
+    shutil.copy2(Path(str(job["timeline_path"])), Path(str(job["output_path"])) / "时间轴.json")
+    return {"ok": True, "job_id": job_id, "updated_count": updated, "timeline": timeline}
 
 
 def attach_reference(
@@ -683,6 +770,102 @@ def _render_voice_track(items: list[dict[str, Any]], duration_sec: float, target
     sf.write(str(target), track, RATE, subtype="PCM_16")
 
 
+def _read_track(path: Path | None, sample_count: int) -> np.ndarray:
+    track = np.zeros(sample_count, dtype=np.float32)
+    if path is None or not path.exists():
+        return track
+    data, rate = sf.read(str(path), dtype="float32", always_2d=False)
+    if getattr(data, "ndim", 1) > 1:
+        data = data.mean(axis=1)
+    if int(rate) != RATE:
+        raise ValueError(f"音轨采样率不是 {RATE}Hz：{path.name}")
+    length = min(sample_count, len(data))
+    if length:
+        track[:length] = np.asarray(data[:length], dtype=np.float32)
+    return track
+
+
+def _set_interval_gain(gain: np.ndarray, start_sec: float, end_sec: float, value: float) -> None:
+    start = max(0, int(round(float(start_sec) * RATE)))
+    end = min(len(gain), int(round(float(end_sec) * RATE)))
+    if end <= start:
+        return
+    value = max(0.0, min(1.5, float(value)))
+    width = end - start
+    fade = min(int(0.04 * RATE), width // 2)
+    previous_start = float(gain[start])
+    previous_end = float(gain[end - fade]) if fade > 0 else value
+    gain[start:end] = value
+    if fade > 0:
+        gain[start : start + fade] = np.linspace(previous_start, value, fade, dtype=np.float32)
+        gain[end - fade : end] = np.linspace(value, previous_end, fade, dtype=np.float32)
+
+
+def _render_mixed_track(
+    generated: list[dict[str, Any]],
+    timeline: dict[str, Any],
+    *,
+    target_speaker_id: str,
+    target_original_volume: float,
+    other_speaker_volume: float,
+    background_volume: float,
+    target: Path,
+) -> None:
+    """Mix separated background, retained original voices and new voice."""
+
+    duration_sec = float(timeline["duration_sec"])
+    sample_count = max(1, int(math.ceil(duration_sec * RATE)))
+    stems = timeline.get("audio_stems") or {}
+    vocal_path = Path(str(stems.get("vocal_path") or timeline.get("audio_path") or ""))
+    background_value = stems.get("background_path")
+    background_path = Path(str(background_value)) if background_value else None
+    original_vocal = _read_track(vocal_path, sample_count)
+    background = _read_track(background_path, sample_count)
+    gains = np.full(
+        sample_count,
+        max(0.0, min(1.5, float(other_speaker_volume))),
+        dtype=np.float32,
+    )
+    target_ids: set[str]
+    if target_speaker_id == "all":
+        target_ids = {str(item.get("speaker_id")) for item in timeline.get("speakers", [])}
+    else:
+        target_ids = {target_speaker_id}
+    target_labels = {
+        int(item["cluster_label"])
+        for item in timeline.get("speakers", [])
+        if str(item.get("speaker_id")) in target_ids and item.get("cluster_label") is not None
+    }
+    mute_intervals = [
+        item
+        for item in (timeline.get("diarization", {}) or {}).get("segments", [])
+        if int(item.get("cluster_label", -1)) in target_labels
+    ]
+    for item in mute_intervals or generated:
+        _set_interval_gain(
+            gains,
+            float(item["start_sec"]),
+            float(item["end_sec"]),
+            target_original_volume,
+        )
+    mixed = (
+        background * max(0.0, min(2.0, float(background_volume)))
+        + original_vocal * gains
+    )
+    for item in generated:
+        data = _read_track(Path(item["audio_path"]), sample_count)
+        start = max(0, int(round(float(item["start_sec"]) * RATE)))
+        if start >= sample_count:
+            continue
+        stop = min(sample_count, start + len(data))
+        mixed[start:stop] += data[: stop - start]
+    peak = float(np.max(np.abs(mixed))) if mixed.size else 0.0
+    if peak > 0.98:
+        mixed *= 0.96 / peak
+    target.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(target), mixed, RATE, subtype="PCM_16")
+
+
 def _mux_video(source: Path, voice_track: Path, target: Path) -> Path | None:
     streams = probe(source).get("streams", [])
     if not any(item.get("codec_type") == "video" for item in streams):
@@ -725,6 +908,7 @@ def start_generation(
     *,
     edits: list[dict[str, Any]],
     selected_ids: list[str] | None,
+    target_speaker_id: str,
     mode: str,
     speed: float,
     adaptive_speed: bool,
@@ -733,12 +917,27 @@ def start_generation(
     text_frontend: bool,
     seed: int,
     export_video: bool,
+    target_original_volume: float,
+    other_speaker_volume: float,
+    background_volume: float,
 ) -> dict[str, Any]:
     job, timeline = _load_timeline(job_id)
-    segments = _apply_segment_edits(timeline, edits, selected_ids)
+    all_segments = _apply_segment_edits(timeline, edits, selected_ids)
+    target_speaker_id = str(target_speaker_id or "all")
+    known_speakers = {str(item.get("speaker_id")) for item in timeline.get("speakers", [])}
+    if target_speaker_id != "all" and target_speaker_id not in known_speakers:
+        raise ValueError(f"找不到要替换的说话人：{target_speaker_id}")
+    segments = (
+        all_segments
+        if target_speaker_id == "all"
+        else [item for item in all_segments if item.get("speaker_id") == target_speaker_id]
+    )
+    if not segments:
+        raise ValueError("选择的说话人没有可替换台词")
     request = {
         "edits": edits,
         "selected_ids": selected_ids,
+        "target_speaker_id": target_speaker_id,
         "mode": mode,
         "speed": float(speed),
         "adaptive_speed": bool(adaptive_speed),
@@ -747,6 +946,9 @@ def start_generation(
         "text_frontend": bool(text_frontend),
         "seed": int(seed),
         "export_video": bool(export_video),
+        "target_original_volume": max(0.0, min(1.5, float(target_original_volume))),
+        "other_speaker_volume": max(0.0, min(1.5, float(other_speaker_volume))),
+        "background_volume": max(0.0, min(2.0, float(background_volume))),
     }
     generation_id = uuid.uuid4().hex[:12]
     with JOBS_LOCK:
@@ -816,11 +1018,21 @@ def _run_generation(
                         seed=int(request["seed"]),
                     )
                 )
-        voice_track = output_root / "整段配音人声.wav"
+        voice_track = output_root / "新配音人声.wav"
         _render_voice_track(generated, float(timeline["duration_sec"]), voice_track)
+        mix_track = output_root / "配音混音.wav"
+        _render_mixed_track(
+            generated,
+            timeline,
+            target_speaker_id=str(request["target_speaker_id"]),
+            target_original_volume=float(request["target_original_volume"]),
+            other_speaker_volume=float(request["other_speaker_volume"]),
+            background_volume=float(request["background_volume"]),
+            target=mix_track,
+        )
         video_path = None
         if bool(request["export_video"]):
-            video_path = _mux_video(Path(str(job["source_path"])), voice_track, output_root / "配音视频.mp4")
+            video_path = _mux_video(Path(str(job["source_path"])), mix_track, output_root / "配音视频.mp4")
         quality = {
             "segment_count": len(generated),
             "duration_warnings": sum(1 for item in generated if item["quality_flags"]),
@@ -836,7 +1048,10 @@ def _run_generation(
                 }
                 for item in generated
             ],
-            "notes": ["当前版本输出独立配音人声轨；视频导出会替换原音轨，暂不保留原始环境声和 BGM。"],
+            "notes": [
+                "视频导出使用人声/背景两路混音；目标说话人的原声按设置压低，其他说话人按设置保留。",
+                "两个人声同时说话时只能作为同一人声路处理，无法只从混音中精确拆开其中一个人。",
+            ],
         }
         generation = {
             "generation_id": generation_id,
@@ -844,6 +1059,7 @@ def _run_generation(
             "request": request,
             "segments": generated,
             "voice_track": str(voice_track),
+            "mix_track": str(mix_track),
             "video": str(video_path) if video_path else None,
             "quality": quality,
         }

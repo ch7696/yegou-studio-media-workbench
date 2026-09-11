@@ -111,6 +111,15 @@
     .status { min-height:21px; margin-top:10px; color:var(--green); white-space:pre-wrap; font-size:12px; }
     .status.error { color:var(--red); }
     .status.warn { color:var(--yellow); }
+    details { border-top:1px solid var(--line); margin-top:14px; padding-top:12px; }
+    details summary { cursor:pointer; color:#d7e2f0; font-weight:650; }
+    details summary::marker { color:var(--cyan); }
+    .details-body { margin-top:12px; }
+    .filter-row { display:grid; grid-template-columns:minmax(220px, 300px) 1fr; gap:10px; align-items:end; margin-top:12px; }
+    .filter-row .field { min-width:0; }
+    .primary { background:linear-gradient(135deg,#2c78d0,#1d5ab1); box-shadow:0 6px 15px rgba(36,112,205,.2); }
+    .primary:hover { background:linear-gradient(135deg,#3b8be4,#286bc5); }
+    .hidden-control { display:none !important; }
     @media (max-width: 1060px) { .hero { display:block; } .steps { margin-top:18px; min-width:0; } .layout { grid-template-columns:1fr; } }
     @media (max-width: 680px) { .shell { padding:15px 12px 30px; } h1 { font-size:24px; } .nav { display:none; } .meta-grid, .form-grid, .range-grid, .batch-grid { grid-template-columns:1fr; } .field.wide { grid-column:auto; } .lane { grid-template-columns:1fr; } .segment { grid-template-columns:72px 1fr; } .segment button { grid-column:2; justify-self:start; } }
   </style>
@@ -137,7 +146,7 @@
   <section class="layout">
     <div class="stack">
       <section class="card">
-        <div class="card-head"><div><div class="eyebrow">01 / MEDIA</div><h2>导入视频或音频</h2><p>先选一份原始素材，页面会在浏览器里显示预览和时长。</p></div><span class="chip ok">本地文件</span></div>
+        <div class="card-head"><div><div class="eyebrow">01 / MEDIA</div><h2>导入视频或音频</h2><p>选一份原始素材，后面所有分析和导出都自动保存到 F:\\voice。</p></div><span class="chip ok">本地文件</span></div>
         <div id="drop" class="drop">
           <strong>把视频或音频拖到这里</strong>
           <span class="help">支持常见视频、音频格式；原始文件不会被覆盖</span>
@@ -156,10 +165,10 @@
       </section>
 
       <section class="card">
-        <div class="card-head"><div><div class="eyebrow">02 / TIMELINE</div><h2>可视时间轴与音轨</h2><p>拖动起止时间选择要分析或重新配音的片段。</p></div><span class="chip">时间戳</span></div>
+        <div class="card-head"><div><div class="eyebrow">02 / TIMELINE</div><h2>说话人时间轴</h2><p>分析整段素材后，按说话人筛选台词；点一条台词可以试听和修改。</p></div><span class="chip">自动时间戳</span></div>
         <div class="toolbar">
-          <div class="chips"><span class="chip ok">人声轨</span><span class="chip" style="color:#d8a9ff">环境声轨</span></div>
-          <div class="actions"><button id="analyze-btn" class="secondary" type="button">分析整段媒体</button><button id="select-all-btn" class="ghost" type="button">选择整段</button></div>
+          <div class="chips"><span class="chip ok">人声 / 背景两路自动分离</span><span class="chip" style="color:#d8a9ff">保留音效与环境</span></div>
+          <div class="actions"><button id="analyze-btn" type="button">分析整段媒体</button><button id="select-all-btn" class="ghost" type="button">选取整段参考</button></div>
         </div>
         <div class="wavebox"><canvas id="waveform" width="1100" height="124"></canvas><div id="selection" class="selection"></div></div>
         <div class="ruler"><span>00:00</span><span id="ruler-middle">00:00</span><span id="ruler-end">00:00</span></div>
@@ -167,30 +176,40 @@
           <label>片段开始（秒）<input id="segment-start" type="number" min="0" step="0.1" value="0"></label>
           <label>片段结束（秒）<input id="segment-end" type="number" min="0.1" step="0.1" value="10"></label>
         </div>
-        <div class="form-grid" style="margin-top:12px">
-          <label class="field">预计说话人数（0=自动）<input id="analysis-speaker-num" type="number" min="0" max="32" step="1" value="0"><span class="help">已知人数时填写可减少误分。</span></label>
-          <label class="field">清洁强度<input id="analysis-noise-reduction" type="number" min="0" max="30" step="1" value="8"><span class="help">0 表示不做降噪，过高可能损伤人声。</span></label>
-          <label class="field wide"><span class="inline"><input id="analysis-overlap" type="checkbox" checked style="width:auto"> 检测重叠说话</span><span class="help">多人抢话时保留重叠标记；若本机缺少重叠模型，后端自动回退到普通分段。</span></label>
+        <div class="filter-row">
+          <label class="field">显示哪位说话人
+            <select id="speaker-filter"><option value="all">全部说话人</option></select>
+            <span class="help">筛选只影响显示；输出时在下方选择要替换的人。</span>
+          </label>
+          <span id="timeline-status" class="help">还没有分析结果；点击“分析整段媒体”会处理完整文件。</span>
         </div>
-        <div class="timeline-actions"><span id="timeline-status" class="help">还没有分析结果；点击“分析整段媒体”会处理完整文件。</span><span class="help">后端会保存原始时间戳，方便回写视频。</span></div>
+        <details>
+          <summary>分析选项（默认即可）</summary>
+          <div class="details-body form-grid">
+            <label class="field">预计说话人数（0=自动）<input id="analysis-speaker-num" type="number" min="0" max="32" step="1" value="0"><span class="help">已知人数时填写可减少误分。</span></label>
+            <label class="field">清洁强度<input id="analysis-noise-reduction" type="number" min="0" max="30" step="1" value="8"><span class="help">0 表示不做降噪，过高可能损伤人声。</span></label>
+            <label class="field wide"><span class="inline"><input id="analysis-overlap" type="checkbox" style="width:auto"> 检测重叠说话</span><span class="help">少量多人同时说话时才打开；本工作流采用人声 / 背景两路分离。</span></label>
+          </div>
+        </details>
+        <div class="timeline-actions"><span class="help">台词、说话人和时间可以编辑，改完点击“暂存时间轴”。</span><button id="save-timeline-btn" class="secondary" type="button">暂存时间轴</button></div>
         <div id="segments" class="segments"><div class="empty">分析后，识别出的说话片段会按时间戳显示在这里。</div></div>
       </section>
 
       <section class="card">
-        <div class="card-head"><div><div class="eyebrow">03 / AUDIO LANES</div><h2>人声与环境声</h2><p>重新配音时保留环境声，让画面不会变成“只有干声音”。</p></div><button id="separate-btn" type="button">一键分离人声 / 环境声</button></div>
+        <div class="card-head"><div><div class="eyebrow">03 / AUDIO LANES</div><h2>人声与背景 / 音效</h2><p>点击分析后自动生成两路，导出时目标说话人的原声会被压低，背景和音效保留。</p></div><span class="chip warn">分析时自动处理</span></div>
         <div class="lanes">
-          <div class="lane"><span class="lane-name">人声轨</span><span class="lane-bar"></span><span class="chip warn">待处理</span></div>
-          <div class="lane"><span class="lane-name">环境声轨</span><span class="lane-bar bg"></span><span class="chip warn">待处理</span></div>
+          <div class="lane"><span class="lane-name">人声轨</span><span class="lane-bar"></span><span id="vocal-chip" class="chip warn">待分析</span></div>
+          <div class="lane"><span class="lane-name">背景 / 音效</span><span class="lane-bar bg"></span><span id="background-chip" class="chip warn">待分析</span></div>
         </div>
-        <div id="separate-status" class="status">首版会生成独立配音人声轨；环境声 / BGM 分离保持为下一阶段入口。</div>
+        <div id="separate-status" class="status">分析时使用两路分离：人声用于说话人时间轴，背景路用于最终混音。</div>
       </section>
     </div>
 
     <aside class="stack">
       <section class="card">
         <div class="card-head"><div><div class="eyebrow">QUICK GUIDE</div><h2>第一次使用看这里</h2></div><span class="chip ok">小白模式</span></div>
-        <div class="notice ok">先选文件，再点“分析整段媒体”。分析完成后，页面会列出每个说话人的时间轴；给每个说话人绑定一段参考音频，再开始批量配音。</div>
-        <details open style="margin-top:13px"><summary><strong>这些词是什么意思？</strong></summary>
+        <div class="notice ok">先选文件，再点“分析整段媒体”。分析完成后，按说话人筛选时间轴；给要替换的目标说话人绑定参考音频，修改台词并导出。</div>
+        <details style="margin-top:13px"><summary><strong>这些词是什么意思？</strong></summary>
           <p class="help"><span class="term" title="从参考音频中提取说话人的音色和说话方式">参考音色</span>：告诉模型“用谁的声音说”。</p>
           <p class="help"><span class="term" title="Qwen3-ASR 自动听写参考音频中的内容">参考台词</span>：Zero-shot 的语义提示，页面自动填写，也可以手工修正。</p>
           <p class="help"><span class="term" title="按开始和结束时间生成一段音频">时间戳</span>：决定这句话在原视频中出现的位置。</p>
@@ -199,36 +218,41 @@
       </section>
 
       <section class="card">
-        <div class="card-head"><div><div class="eyebrow">04 / VOICE</div><h2>选中的片段重新配音</h2><p>先做一段试听，满意后再批量处理。</p></div><span id="selected-chip" class="chip">未选择</span></div>
+        <div class="card-head"><div><div class="eyebrow">04 / VOICE</div><h2>绑定参考音色并试听</h2><p>选中一个说话人，给他绑定参考音频；目标说话人的全部台词会在下方统一替换。</p></div><span id="selected-chip" class="chip">未选择</span></div>
         <div class="form-grid">
           <label class="field wide">参考音频 / 视频
             <div class="voice-picker"><input id="voice-file-name" value="使用左侧媒体的选中片段" readonly><button id="use-media-btn" class="secondary" type="button">使用当前媒体</button></div>
             <input id="speaker-reference-file" type="file" accept="audio/*,video/*">
             <div class="actions"><button id="attach-reference-btn" class="secondary" type="button">绑定到选中说话人</button><span id="selected-speaker" class="help">还没有选择说话人</span></div>
-            <span class="help">参考音频只用于提取音色；零样本模式会自动识别参考台词，也可以手工改正。</span>
-          </label>
-          <label class="field">参考开始（秒）<input id="reference-start" type="number" min="0" step="0.1" value="0"><span class="help">使用单独参考文件时从这里开始截取。</span></label>
-          <label class="field">参考时长（秒）<input id="reference-seconds" type="number" min="1" max="30" step="0.5" value="10"><span class="help">建议保留 6–15 秒清晰人声。</span></label>
-          <label class="field wide">复刻方式
-            <select id="tts-mode">
-              <option value="zero_shot">Zero-shot：自动识别参考台词（推荐高质量）</option>
-              <option value="cross_lingual">无需参考台词：只使用参考声音</option>
-              <option value="instruct2">Instruct2：使用表达指令（实验）</option>
-            </select>
-            <span class="help">Zero-shot 会把“参考音频 + 参考台词”一起交给模型；台词已自动填入。</span>
-          </label>
-          <label class="field wide"><span class="inline" style="justify-content:space-between"><span>参考台词（自动识别，可修改）</span><button id="transcript-btn" class="secondary" type="button">重新识别</button></span>
-            <textarea id="reference-text" placeholder="选择媒体后，Zero-shot 会自动填入这里"></textarea>
-            <span id="transcript-status" class="help">参考台词必须和参考音频实际说出的内容一致。</span>
+            <span class="help">参考音频只用于提取音色。可以使用当前媒体的选中片段，也可以上传一段独立参考音频 / 视频。</span>
           </label>
           <label class="field wide">新的台词（要生成的内容）<textarea id="target-text" placeholder="输入这段视频里你希望重新说的话">今天辛苦了，接下来慢一点就好。</textarea></label>
-          <label class="field">speed<input id="tts-speed" type="number" min="0.5" max="2" step="0.05" value="1"><span class="help">官方范围 0.5–2</span></label>
-          <label class="field">随机 seed<input id="tts-seed" type="number" min="0" max="2147483647" step="1" value="0"><span class="help">相同 seed 便于复现</span></label>
-          <label class="field wide"><span class="inline"><input id="fit-duration" type="checkbox" checked style="width:auto"> 严格适配选中片段时长</span><span class="help">批量配音默认按原时间槽适配；试音时也可以取消查看自然时长。</span></label>
-          <label class="field wide"><span class="inline"><input id="adaptive-speed" type="checkbox" checked style="width:auto"> 根据原片段时长自动调整语速</span><span class="help">先按目标时长估算 speed，再生成；官方范围仍限制在 0.5–2.0。</span></label>
-          <label class="field wide"><span class="inline"><input id="export-video" type="checkbox" checked style="width:auto"> 批量完成后导出替换音轨的视频</span><span class="help">首版会替换原始音轨；环境声 / BGM 分离接入后再做混音。</span></label>
         </div>
-        <div class="actions" style="margin-top:13px"><button id="preview-btn" type="button">生成这段试音</button><button id="batch-btn" class="secondary" type="button">准备整段批量重配音</button></div>
+        <details>
+          <summary>高级配音参数（一般不用改）</summary>
+          <div class="details-body form-grid">
+            <label class="field">参考开始（秒）<input id="reference-start" type="number" min="0" step="0.1" value="0"><span class="help">独立参考文件从这里截取。</span></label>
+            <label class="field">参考时长（秒）<input id="reference-seconds" type="number" min="1" max="30" step="0.5" value="10"><span class="help">建议保留 6–15 秒清晰人声。</span></label>
+            <label class="field wide">复刻方式
+              <select id="tts-mode">
+                <option value="zero_shot">Zero-shot：自动识别参考台词（推荐）</option>
+                <option value="cross_lingual">Cross-lingual：无需参考台词</option>
+                <option value="instruct2">Instruct2：使用表达指令</option>
+              </select>
+              <span class="help">Zero-shot 的参考台词会自动识别；模型需要它来稳定复刻音色。</span>
+            </label>
+            <label class="field wide"><span class="inline" style="justify-content:space-between"><span>参考台词（自动识别，可修改）</span><button id="transcript-btn" class="secondary" type="button">重新识别</button></span>
+              <textarea id="reference-text" placeholder="选择媒体后，Zero-shot 会自动填入这里"></textarea>
+              <span id="transcript-status" class="help">参考台词必须和参考音频实际说出的内容一致。</span>
+            </label>
+            <label class="field">语速 speed<input id="tts-speed" type="number" min="0.5" max="2" step="0.05" value="1"><span class="help">官方范围 0.5–2</span></label>
+            <label class="field">随机 seed<input id="tts-seed" type="number" min="0" max="2147483647" step="1" value="0"><span class="help">相同 seed 便于复现</span></label>
+            <label class="field wide"><span class="inline"><input id="fit-duration" type="checkbox" checked style="width:auto"> 严格适配原片段时长</span><span class="help">批量替换默认打开，避免台词跑出原时间槽。</span></label>
+            <label class="field wide"><span class="inline"><input id="adaptive-speed" type="checkbox" checked style="width:auto"> 按原片段时长自动调整语速</span><span class="help">生成前先估算速度，仍限制在官方 0.5–2.0 范围。</span></label>
+            <label class="field wide"><span class="inline"><input id="export-video" type="checkbox" checked style="width:auto"> 同时导出视频</span><span class="help">视频会使用“人声 + 背景 / 音效”混音轨。</span></label>
+          </div>
+        </details>
+        <div class="actions" style="margin-top:13px"><button id="preview-btn" type="button">生成这段试音</button></div>
         <div id="tts-status" class="status">还没有生成试音。</div>
         <div id="preview-box" class="preview-box" hidden><div class="sub">新配音试听</div><audio id="tts-preview" controls></audio><div id="tts-output-path" class="help" style="margin-top:7px;word-break:break-all"></div></div>
       </section>
@@ -236,12 +260,24 @@
   </section>
 
   <section class="card batch">
-    <div class="card-head"><div><div class="eyebrow">05 / BATCH DUBBING</div><h2>整段人声批量重新配音</h2><p>最终流程会把识别出的台词分段、逐段生成，再按原时间戳合回视频。</p></div><span class="chip warn">流程入口</span></div>
-    <div class="batch-grid">
-      <div class="batch-option"><h3>按句分段</h3><p>使用 ASR 词级时间戳和说话人分段，生成可以逐句编辑的时间轴。</p><button id="sentence-batch-btn" class="secondary" type="button">开始全片分析</button></div>
-      <div class="batch-option"><h3>整段人声</h3><p>给时间轴中的说话人绑定参考音色，逐句生成并按原时间戳合成整段声音。</p><button id="full-batch-btn" class="secondary" type="button">开始批量配音</button></div>
+    <div class="card-head"><div><div class="eyebrow">05 / EXPORT</div><h2>替换一个说话人的全部台词</h2><p>选择目标说话人后，一键生成他的全部新台词；其他说话人和背景 / 音效按混音设置保留。</p></div><span class="chip warn">最后一步</span></div>
+    <div class="form-grid">
+      <label class="field wide">要替换的说话人
+        <select id="target-speaker"><option value="">请先分析并选择说话人</option></select>
+        <span class="help">先在上方时间轴筛选或点击一条台词，再在这里确认目标人物。</span>
+      </label>
     </div>
-    <div id="batch-status" class="status">流程：分析整段 → 选择说话人 → 绑定参考音色 → 修改台词 → 批量生成。</div>
+    <details>
+      <summary>混音与生成选项（默认即可）</summary>
+      <div class="details-body form-grid">
+        <label class="field">目标说话人原声比例<input id="target-original-volume" type="number" min="0" max="1.5" step="0.05" value="0"><span class="help">0 = 完全用新配音，默认值。</span></label>
+        <label class="field">其他说话人原声比例<input id="other-speaker-volume" type="number" min="0" max="1.5" step="0.05" value="1"><span class="help">1 = 保留原音量。</span></label>
+        <label class="field">背景 / 音效比例<input id="background-volume" type="number" min="0" max="2" step="0.05" value="1"><span class="help">1 = 保留环境声和音效。</span></label>
+        <label class="field">输出模式<select id="export-mode"><option value="target">只替换目标说话人</option><option value="all">替换全部已绑定说话人</option></select><span class="help">默认只处理上面选中的目标人物。</span></label>
+      </div>
+    </details>
+    <div class="actions" style="margin-top:13px"><button id="full-batch-btn" class="primary" type="button">替换选中说话人的全部台词并导出</button></div>
+    <div id="batch-status" class="status">流程：分析整段 → 按说话人筛选 → 绑定参考音色 → 修改台词 → 暂存 → 导出。</div>
     <div id="generated-links" class="actions" style="margin-top:8px"></div>
   </section>
   <div class="footer-note">所有结果按项目目录保存到 F:\\voice；原始文件不会被覆盖。</div>

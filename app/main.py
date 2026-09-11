@@ -30,7 +30,7 @@ from .config import (
 )
 from .direct_tts import extract_reference
 from .identification import analyze_file
-from .schemas import DubbingGenerateRequest, TTSGenerateRequest
+from .schemas import DubbingGenerateRequest, DubbingTimelineSaveRequest, TTSGenerateRequest
 from .utils import digest, load_manifest, probe, safe_name, save_json, to_windows_path, to_wsl_path
 
 
@@ -156,7 +156,7 @@ def _dubbing_job_response(job: dict[str, Any]) -> dict[str, Any]:
     generation = response.get("generation")
     if isinstance(generation, dict):
         urls: dict[str, str] = {}
-        for key in ("voice_track", "video"):
+        for key in ("voice_track", "mix_track", "video"):
             value = generation.get(key)
             if not value:
                 continue
@@ -184,6 +184,20 @@ def dubbing_timeline(job_id: str) -> dict[str, Any]:
         return dubbing.get_timeline(job_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/dubbing/jobs/{job_id}/timeline")
+def save_dubbing_timeline(job_id: str, request: DubbingTimelineSaveRequest) -> dict[str, Any]:
+    try:
+        edits = [
+            item.model_dump() if hasattr(item, "model_dump") else item.dict()
+            for item in request.edits
+        ]
+        return dubbing.save_timeline_edits(job_id, edits)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"时间轴暂存失败：{exc}") from exc
 
 
 @app.post("/api/dubbing/jobs/{job_id}/speakers/{speaker_id}/reference")
@@ -246,6 +260,7 @@ def start_dubbing_generation(job_id: str, request: DubbingGenerateRequest) -> di
             job_id,
             edits=edits,
             selected_ids=request.selected_ids,
+            target_speaker_id=request.target_speaker_id,
             mode=request.mode,
             speed=request.speed,
             adaptive_speed=request.adaptive_speed,
@@ -254,6 +269,9 @@ def start_dubbing_generation(job_id: str, request: DubbingGenerateRequest) -> di
             text_frontend=request.text_frontend,
             seed=request.seed,
             export_video=request.export_video,
+            target_original_volume=request.target_original_volume,
+            other_speaker_volume=request.other_speaker_volume,
+            background_volume=request.background_volume,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
