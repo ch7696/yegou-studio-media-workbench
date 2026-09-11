@@ -2,7 +2,7 @@
 
 本项目把“多人说话人识别/参考音色资产生成”和“CosyVoice3 TTS 试音”拆成两条独立链路，并在重新配音工作台中组合成一条可编辑的全片音频流程，运行在当前 WSL Docker 环境中。
 
-识别链路负责上传音频或视频、抽取完整音轨、可调清洁、3D-Speaker 说话人聚类、Qwen3-ASR + ForcedAligner 时间戳识别，并把每个说话人保存为可读的资产目录。TTS 链路只读取已经生成的说话人资产，不会因为打开页面就重新分析源视频；重新配音工作台则按任务需要调用两条链路。
+识别链路负责上传音频或视频、抽取完整音轨、可调清洁、3D-Speaker 说话人聚类、Qwen3-ASR-1.7B + ForcedAligner 时间戳识别，并把每个说话人保存为可读的资产目录。TTS 链路只读取已经生成的说话人资产，不会因为打开页面就重新分析源视频；重新配音工作台则按任务需要调用两条链路。
 
 ## 目录
 
@@ -44,11 +44,19 @@ BUILD_IMAGE=1 bash /home/administrator/voice-asset-workbench/scripts/run_webui.s
 
 独立 Qwen3-ASR 服务使用本机端口 `18763`，由工作台内部调用；日常操作只需要打开上面的 7866 页面。
 
+当前默认 ASR 是 `Qwen3-ASR-1.7B`，时间戳使用官方 `Qwen3-ForcedAligner-0.6B`。旧的 `Qwen3-ASR-0.6B` 保留为回退版本，临时回退时执行：
+
+```bash
+ASR_MODEL_NAME=Qwen3-ASR-0.6B \
+ASR_MODEL_DIR=/home/administrator/models/Qwen3-ASR-0.6B \
+bash /home/administrator/voice-asset-workbench/scripts/run_webui.sh
+```
+
 直接 TTS 工作台地址：`http://127.0.0.1:7866/tts`。它接收音频或视频，按起点和片段时长抽取一段参考音频，然后直接生成语音；不会调用 3D-Speaker 或说话人聚类。默认的“无参考台词复刻”走官方 `inference_cross_lingual`；Zero-shot 会自动调用 Qwen3-ASR 填入参考台词，用户可以修改后再生成；Instruct2 只需要填写 `instruct_text`。
 
 重新配音工作台会把结果写入 `F:\voice\<原文件名>__全片配音项目__<任务号>`，其中包含 `时间轴.json`、`说话人时间轴.md`、`音频/人声.wav`、`音频/背景声.wav`、参考音色、每句配音片段、`新配音人声.wav`、`配音混音.wav` 和可选的 `配音视频.mp4`。原始文件不会被覆盖。
 
-当前分离采用 [Demucs 官方仓库](https://github.com/facebookresearch/demucs) 对应的 Hybrid Demucs 权重，将 `vocals` 保留为人声，将 `drums`、`bass` 和 `other` 合成为背景 / 音效。它适合当前演示素材和大多数单人说话场景；两个真人在同一时刻重叠说话时，仍然会落在同一条人声轨里，不能只从混音中精确抽出其中一个人的原声。
+当前分离采用 [Demucs 官方仓库](https://github.com/facebookresearch/demucs) 对应的 Hybrid Demucs 权重，将 `vocals` 保留为人声，将 `drums`、`bass` 和 `other` 合成为背景 / 音效。3D-Speaker 使用分离后的人声轨做说话人聚类；ASR 和时间戳使用清洁原轨，以减少动画音效和分离伪影对字音的影响。它适合当前演示素材和大多数单人说话场景；两个真人在同一时刻重叠说话时，仍然会落在同一条人声轨里，不能只从混音中精确抽出其中一个人的原声。
 
 ## TTS 参数依据
 
@@ -64,11 +72,12 @@ CosyVoice3 权重上会导致语音生成乱码。
 | `zero_shot` | `inference_zero_shot(tts_text, prompt_text, prompt_wav, ...)` | 官方 3s 极速复刻路径，参考台词必须和参考音频一致 |
 | `instruct2` | `inference_instruct2` | 使用参考音频并传入指令 |
 | `speed` | `speed` | 直接传给 CosyVoice3，默认 `1.0` |
+| `output_gain_db` / `voice_gain_db` | 工作台后处理 | 生成后提高配音响度，默认 `+6 dB`，峰值过高时自动限峰 |
 | `text_frontend` | `text_frontend` | 是否启用文本前端，默认开启（官方函数默认值） |
 | `seed` | `set_all_random_seed` | 官方 WebUI 使用的随机种子，默认 `0` |
 | 严格适配目标时长 | ffmpeg 后处理 | 不是 CosyVoice 参数；批量配音页面默认开启 |
 
-批量配音会先按目标时间槽估算新的 `speed`，再在 0.5–2.0 范围内重新生成；若仍然偏长或偏短，使用 ffmpeg 做最后的时长适配，并在质量报告中留下警告。每个要被替换的说话人必须先绑定参考音色；Zero-shot 模式还需要参考音频对应的台词，页面默认自动识别并允许手工修改。页面的“目标说话人原声比例”“其他说话人原声比例”和“背景 / 音效比例”用于控制最终混音，默认值分别为 `0`、`1`、`1`。
+批量配音会先按目标时间槽估算新的 `speed`，再在 0.5–2.0 范围内重新生成；若仍然偏长或偏短，使用 ffmpeg 做最后的时长适配，并在质量报告中留下警告。每个要被替换的说话人必须先绑定参考音色；Zero-shot 模式还需要参考音频对应的台词，页面默认自动识别并允许手工修改。页面的“目标说话人原声比例”“其他说话人原声比例”“背景 / 音效比例”和“新配音响度增益”用于控制最终混音，默认值分别为 `0`、`1`、`1` 和 `+6 dB`。
 
 CosyVoice3 zero-shot 的提示词和音频按官方示例直接传入 `inference_zero_shot`，组织为：
 `You are a helpful assistant.<|endofprompt|>参考台词`。
@@ -79,7 +88,7 @@ CosyVoice2 示例中的 `add_zero_shot_spk` 缓存调用没有套用到 CosyVoic
 
 官方 CLI 没有向这个接口暴露 `temperature`、`top_p` 等采样参数，因此页面没有凭经验添加这些字段。依据是 [CosyVoice 官方 example.py](https://github.com/FunAudioLLM/CosyVoice/blob/main/example.py) 和 [CosyVoice 官方 CLI 实现](https://github.com/FunAudioLLM/CosyVoice/blob/main/cosyvoice/cli/cosyvoice.py)。
 
-识别部分采用 [3D-Speaker 官方 diarization 脚本](https://github.com/modelscope/3D-Speaker/blob/main/speakerlab/bin/infer_diarization.py) 和 [Qwen3-ASR 官方仓库](https://github.com/QwenLM/Qwen3-ASR) 的调用形态。
+识别部分采用 [3D-Speaker 官方 diarization 脚本](https://github.com/modelscope/3D-Speaker/blob/main/speakerlab/bin/infer_diarization.py) 和 [Qwen3-ASR 官方仓库](https://github.com/QwenLM/Qwen3-ASR) 的调用形态。多人动画或配音素材如果已知说话人数，建议在折叠的“分析选项”中填写人数，例如四人素材填写 `4`，可以减少自动聚类漏分；时间轴同时会合并无停顿的词内边界。
 
 ## 接口
 

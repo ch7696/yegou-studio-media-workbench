@@ -186,7 +186,7 @@
         <details>
           <summary>分析选项（默认即可）</summary>
           <div class="details-body form-grid">
-            <label class="field">预计说话人数（0=自动）<input id="analysis-speaker-num" type="number" min="0" max="32" step="1" value="0"><span class="help">已知人数时填写可减少误分。</span></label>
+            <label class="field">预计说话人数（0=自动）<input id="analysis-speaker-num" type="number" min="0" max="32" step="1" value="0"><span class="help">已知人数时填写可减少误分；例如这段海绵宝宝素材可填 4。</span></label>
             <label class="field">清洁强度<input id="analysis-noise-reduction" type="number" min="0" max="30" step="1" value="8"><span class="help">0 表示不做降噪，过高可能损伤人声。</span></label>
             <label class="field wide"><span class="inline"><input id="analysis-overlap" type="checkbox" style="width:auto"> 检测重叠说话</span><span class="help">少量多人同时说话时才打开；本工作流采用人声 / 背景两路分离。</span></label>
           </div>
@@ -246,6 +246,7 @@
               <span id="transcript-status" class="help">参考台词必须和参考音频实际说出的内容一致。</span>
             </label>
             <label class="field">语速 speed<input id="tts-speed" type="number" min="0.5" max="2" step="0.05" value="1"><span class="help">官方范围 0.5–2</span></label>
+            <label class="field">新配音响度增益（dB）<input id="tts-output-gain" type="number" min="-12" max="18" step="0.5" value="6"><span class="help">默认 +6 dB；峰值过高会自动防止爆音。</span></label>
             <label class="field">随机 seed<input id="tts-seed" type="number" min="0" max="2147483647" step="1" value="0"><span class="help">相同 seed 便于复现</span></label>
             <label class="field wide"><span class="inline"><input id="fit-duration" type="checkbox" checked style="width:auto"> 严格适配原片段时长</span><span class="help">批量替换默认打开，避免台词跑出原时间槽。</span></label>
             <label class="field wide"><span class="inline"><input id="adaptive-speed" type="checkbox" checked style="width:auto"> 按原片段时长自动调整语速</span><span class="help">生成前先估算速度，仍限制在官方 0.5–2.0 范围。</span></label>

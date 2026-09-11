@@ -272,6 +272,7 @@ def start_dubbing_generation(job_id: str, request: DubbingGenerateRequest) -> di
             target_original_volume=request.target_original_volume,
             other_speaker_volume=request.other_speaker_volume,
             background_volume=request.background_volume,
+            voice_gain_db=request.voice_gain_db,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -363,6 +364,7 @@ async def direct_tts(
     noise_reduction: float = Form(0.0),
     trim_leading_silence: bool = Form(True),
     speed: float = Form(1.0),
+    output_gain_db: float = Form(6.0),
     text_frontend: bool = Form(True),
     target_duration: float = Form(5.0),
     fit_duration: bool = Form(False),
@@ -391,12 +393,15 @@ async def direct_tts(
         noise_reduction = max(0.0, min(30.0, float(noise_reduction)))
         target_duration = float(target_duration)
         seed = int(seed)
+        output_gain_db = float(output_gain_db)
         if not 0.5 <= speed <= 2.0:
             raise ValueError("speed 应在 0.5 到 2.0 之间")
         if not 0 <= seed <= 2_147_483_647:
             raise ValueError("seed 超出范围")
         if not 0.5 <= target_duration <= 120.0:
             raise ValueError("目标时长应在 0.5 到 120 秒之间")
+        if not -12.0 <= output_gain_db <= 18.0:
+            raise ValueError("输出响度增益应在 -12 到 18 dB 之间")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -456,6 +461,7 @@ async def direct_tts(
                 text_frontend=text_frontend,
                 seed=seed,
             )
+            audio = tts.apply_gain(audio, output_gain_db)
             raw_path = work_root / "原始生成.wav"
             tts.save_audio(raw_path, audio, model.sample_rate)
             if fit_duration:
@@ -485,6 +491,7 @@ async def direct_tts(
             "prompt_instruction": prompt_instruction,
             "target_text": target_text,
             "speed": speed,
+            "output_gain_db": output_gain_db,
             "seed": seed,
             "text_frontend": text_frontend,
             "fit_duration": fit_duration,
@@ -513,6 +520,7 @@ async def direct_tts(
             "warning": quality_warning,
             "reference_text": reference_text,
             "reference_text_source": reference_text_source,
+            "output_gain_db": output_gain_db,
         }
     except HTTPException:
         raise
@@ -567,6 +575,7 @@ def _generate(request: TTSGenerateRequest) -> dict[str, Any]:
                 text_frontend=request.text_frontend,
                 seed=request.seed,
             )
+            audio = tts.apply_gain(audio, request.output_gain_db)
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             raw_path = RESULTS / f"{request.speaker_asset_id}__{stamp}__{request.mode}__原始.wav"
             tts.save_audio(raw_path, audio, model.sample_rate)
@@ -590,6 +599,7 @@ def _generate(request: TTSGenerateRequest) -> dict[str, Any]:
                 "prompt_instruction": request.prompt_instruction,
                 "target_duration_sec": request.target_duration,
                 "speed": request.speed,
+                "output_gain_db": request.output_gain_db,
                 "seed": request.seed,
                 "text_frontend": request.text_frontend,
                 "fit_duration": request.fit_duration,
@@ -617,6 +627,7 @@ def _generate(request: TTSGenerateRequest) -> dict[str, Any]:
                 "output_path": to_windows_path(exported),
                 "mode": request.mode,
                 "final_duration_sec": round(final_seconds, 3),
+                "output_gain_db": request.output_gain_db,
                 "warning": quality_warning,
             }
         except HTTPException:

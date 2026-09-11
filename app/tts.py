@@ -136,6 +136,22 @@ def save_audio(path: Path, audio: torch.Tensor, sample_rate: int) -> None:
     torchaudio.save(str(path), audio, sample_rate)
 
 
+def apply_gain(audio: torch.Tensor, gain_db: float, *, peak_limit: float = 0.97) -> torch.Tensor:
+    """Raise generated speech while preventing digital clipping.
+
+    CosyVoice's output level is intentionally conservative.  Apply this after
+    synthesis and before duration fitting/mixing so the same control affects
+    direct previews and batch dubbing.
+    """
+
+    amplified = audio.float() * float(10.0 ** (float(gain_db) / 20.0))
+    if amplified.numel():
+        peak = float(amplified.abs().max().item())
+        if peak > float(peak_limit) > 0:
+            amplified = amplified * (float(peak_limit) / peak)
+    return amplified
+
+
 def unload_tts() -> None:
     global TTS_MODEL
     if TTS_MODEL is not None:

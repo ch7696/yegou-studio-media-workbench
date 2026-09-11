@@ -10,7 +10,8 @@ import torch
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 
-MODEL_DIR = os.getenv("ASR_MODEL_DIR", "/models/Qwen3-ASR-0.6B")
+MODEL_DIR = os.getenv("ASR_MODEL_DIR", "/models/Qwen3-ASR-1.7B")
+MODEL_NAME = os.getenv("ASR_MODEL_NAME", Path(MODEL_DIR).name)
 FORCED_ALIGNER_DIR = os.getenv("FORCED_ALIGNER_DIR", "/models/Qwen3-ForcedAligner-0.6B")
 MODEL: Any = None
 TIMESTAMPS_SUPPORTED = False
@@ -62,7 +63,7 @@ def get_model() -> Any:
 def health() -> dict[str, Any]:
     return {
         "ok": True,
-        "model": "Qwen3-ASR-0.6B",
+        "model": MODEL_NAME,
         "forced_aligner": FORCED_ALIGNER_DIR,
         "loaded": MODEL is not None,
         "timestamps_supported": TIMESTAMPS_SUPPORTED,
@@ -133,7 +134,7 @@ async def transcribe(
             "text": str(text or "").strip(),
             "language": str(detected_language or ""),
             "time_stamps": timestamps,
-            "model": "Qwen3-ASR-0.6B",
+            "model": MODEL_NAME,
             "forced_aligner": TIMESTAMPS_SUPPORTED,
         }
     except Exception as exc:

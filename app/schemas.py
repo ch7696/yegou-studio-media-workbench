@@ -13,6 +13,7 @@ class TTSGenerateRequest(BaseModel):
     prompt_instruction: str = Field(default="You are a helpful assistant.", max_length=500)
     target_duration: float = Field(default=5.0, ge=0.5, le=120.0)
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    output_gain_db: float = Field(default=6.0, ge=-12.0, le=18.0)
     text_frontend: bool = True
     fit_duration: bool = False
     seed: int = Field(default=0, ge=0, le=2_147_483_647)
@@ -46,6 +47,7 @@ class DubbingGenerateRequest(BaseModel):
     target_original_volume: float = Field(default=0.0, ge=0.0, le=1.5)
     other_speaker_volume: float = Field(default=1.0, ge=0.0, le=1.5)
     background_volume: float = Field(default=1.0, ge=0.0, le=2.0)
+    voice_gain_db: float = Field(default=6.0, ge=-12.0, le=18.0)
 
 
 class DubbingTimelineSaveRequest(BaseModel):

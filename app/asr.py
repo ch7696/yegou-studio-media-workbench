@@ -62,9 +62,11 @@ def _timestamp_items(item: object) -> list[dict[str, Any]]:
 def _normalize_result(item: object, *, include_timestamps: bool) -> dict[str, Any]:
     text = str(_field(item, "text", "") or "").strip()
     language = str(_field(item, "language", "") or "").strip()
+    model = str(_field(item, "model", "") or "").strip()
     return {
         "text": re.sub(r"\s+", " ", text),
         "language": language,
+        "model": model,
         "time_stamps": _timestamp_items(item) if include_timestamps else [],
     }
 
@@ -113,7 +115,7 @@ def transcribe_detailed(paths: list[Path], *, return_time_stamps: bool = True) -
             # Identification should still return usable audio assets when ASR
             # is unavailable; the UI lets the user fill the reference text.
             print(f"参考台词自动识别失败：{exc}", flush=True)
-            return [{"text": "", "language": "", "time_stamps": []} for _ in paths]
+            return [{"text": "", "language": "", "model": "", "time_stamps": []} for _ in paths]
         finally:
             if model is not None:
                 _unload(model)
@@ -143,6 +145,7 @@ def _transcribe_remote_detailed(paths: list[Path], *, return_time_stamps: bool) 
                 {
                     "text": re.sub(r"\s+", " ", str(payload.get("text", "") or "")).strip(),
                     "language": str(payload.get("language", "") or "").strip(),
+                    "model": str(payload.get("model", "") or "").strip(),
                     "time_stamps": list(payload.get("time_stamps", payload.get("timestamps", [])) or [])
                     if return_time_stamps
                     else [],
@@ -150,7 +153,7 @@ def _transcribe_remote_detailed(paths: list[Path], *, return_time_stamps: bool) 
             )
         except Exception as exc:
             print(f"远程 Qwen3-ASR 服务失败（{path.name}）：{exc}", flush=True)
-            output.append({"text": "", "language": "", "time_stamps": []})
+            output.append({"text": "", "language": "", "model": "", "time_stamps": []})
     return output
 
 

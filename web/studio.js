@@ -481,6 +481,7 @@ async function generatePreview() {
   data.append('noise_reduction', '0');
   data.append('trim_leading_silence', 'true');
   data.append('speed', document.getElementById('tts-speed').value);
+  data.append('output_gain_db', document.getElementById('tts-output-gain').value);
   data.append('seed', document.getElementById('tts-seed').value);
   data.append('text_frontend', 'true');
   data.append('target_duration', Math.max(.5, end - Number(startInput.value || 0)));
@@ -540,6 +541,7 @@ async function startGeneration() {
       prompt_instruction: 'You are a helpful assistant.',
       text_frontend: true,
       seed: Number(document.getElementById('tts-seed').value) || 0,
+      voice_gain_db: Number(document.getElementById('tts-output-gain').value) || 0,
       export_video: document.getElementById('export-video').checked,
       target_original_volume: Number(document.getElementById('target-original-volume').value) || 0,
       other_speaker_volume: Number(document.getElementById('other-speaker-volume').value) || 0,

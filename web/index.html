@@ -115,6 +115,7 @@
               </select>
             </label>
             <label>speed（官方参数）<input class="speed" type="number" min="0.5" max="2" step="0.05" value="1"></label>
+            <label>输出响度增益（dB）<input class="output-gain-db" type="number" min="-12" max="18" step="0.5" value="6"><span class="help">默认 +6 dB；过高时自动防止削波</span></label>
             <label>目标时长（秒）<input class="target-duration" type="number" min="0.5" max="120" step="0.5" value="5"></label>
             <label>随机 seed<input class="seed" type="number" min="0" max="2147483647" step="1" value="0"></label>
             <label class="tts-wide"><span class="instruction-label">CosyVoice3 prompt_text 前缀指令</span>
@@ -164,6 +165,7 @@
       mode,
       prompt_instruction: card.querySelector('.prompt-instruction').value,
       speed: Number(card.querySelector('.speed').value),
+      output_gain_db: Number(card.querySelector('.output-gain-db').value),
       seed: Number(card.querySelector('.seed').value),
       target_duration: Number(card.querySelector('.target-duration').value),
       text_frontend: card.querySelector('.text-frontend').checked,

@@ -28,6 +28,8 @@ from .utils import digest, duration, probe, safe_name, save_json, to_windows_pat
 JOBS: dict[str, dict[str, Any]] = {}
 JOBS_LOCK = threading.RLock()
 PUNCTUATION = set("，、：,:。！？!?；;．.\n")
+MAX_ALIGNMENT_SPAN = 0.8
+ALIGNMENT_TAIL_SECONDS = 0.5
 
 
 def _now() -> str:
@@ -119,8 +121,17 @@ def _assign_token(
     diarization: list[dict[str, Any]],
     label_to_speaker: dict[int, str],
 ) -> dict[str, Any]:
-    start = max(0.0, float(token.get("start_sec", 0.0) or 0.0))
-    end = max(start + 0.08, float(token.get("end_sec", start) or start))
+    raw_start = max(0.0, float(token.get("start_sec", 0.0) or 0.0))
+    raw_end = max(raw_start, float(token.get("end_sec", raw_start) or raw_start))
+    # ForcedAligner sometimes lets a single character span a long silent gap
+    # before the next voiced region.  Using the full span makes diarization
+    # choose the speaker whose interval merely covers the silence.  Keep the
+    # voiced tail for speaker assignment and timeline display.
+    if raw_end - raw_start > MAX_ALIGNMENT_SPAN:
+        start = max(raw_start, raw_end - ALIGNMENT_TAIL_SECONDS)
+    else:
+        start = raw_start
+    end = max(start + 0.08, raw_end)
     token_duration = max(0.08, end - start)
     candidates: list[tuple[float, dict[str, Any]]] = []
     for segment in diarization:
@@ -129,17 +140,26 @@ def _assign_token(
             candidates.append((overlap, segment))
     candidates.sort(key=lambda item: item[0], reverse=True)
     if not candidates:
-        midpoint = (start + end) / 2.0
         nearest = min(
             diarization,
-            key=lambda item: min(abs(midpoint - item["start_sec"]), abs(midpoint - item["end_sec"])),
+            key=lambda item: min(
+                abs(start - item["start_sec"]),
+                abs(start - item["end_sec"]),
+                abs(end - item["start_sec"]),
+                abs(end - item["end_sec"]),
+            ),
             default=None,
         )
         if nearest is None:
             speaker_id = "unknown"
             confidence = 0.0
         else:
-            distance = min(abs(midpoint - nearest["start_sec"]), abs(midpoint - nearest["end_sec"]))
+            distance = min(
+                abs(start - nearest["start_sec"]),
+                abs(start - nearest["end_sec"]),
+                abs(end - nearest["start_sec"]),
+                abs(end - nearest["end_sec"]),
+            )
             speaker_id = label_to_speaker.get(int(nearest["cluster_label"]), "unknown") if distance <= 0.75 else "unknown"
             confidence = max(0.0, 0.45 - distance / 2.0) if speaker_id != "unknown" else 0.0
         return {
@@ -197,7 +217,14 @@ def _build_utterances(
             speaker_changed = item["speaker_id"] != current["speaker_id"]
             sentence_done = str(current.get("_text", ""))[-1:] in PUNCTUATION and gap > 0.12
             too_long = item["start_sec"] - current["start_sec"] >= 15.0
-            if speaker_changed or gap > 0.85 or sentence_done or too_long:
+            # Diarization boundaries often land inside a Chinese word.  A
+            # speaker change with no pause is more likely a boundary artifact
+            # than a real turn, so keep the token in the current utterance.
+            # A real turn still splits on the normal short pause threshold.
+            speaker_boundary = speaker_changed and (
+                gap > 0.35 or str(current.get("_text", ""))[-1:] in PUNCTUATION
+            )
+            if speaker_boundary or gap > 0.85 or sentence_done or too_long:
                 flush()
         if current is None:
             current = {
@@ -303,7 +330,12 @@ def analyse_timeline(
     separation: dict[str, Any]
     try:
         separation = separate_audio(clean_audio, vocal_audio, background_audio)
-        analysis_audio = vocal_audio
+        # Use the isolated vocal stem for speaker clustering, where removing
+        # music/effects helps embeddings.  Keep the clean full track for ASR:
+        # Demucs can slightly distort consonants in cartoon voices and the
+        # clean track preserves more context for recognition/alignment.
+        diarization_audio = vocal_audio
+        transcription_audio = clean_audio
     except Exception as exc:
         # Keep the timeline usable if a model download or an unusual codec
         # prevents separation.  The manifest records the fallback explicitly.
@@ -315,14 +347,15 @@ def analyse_timeline(
         }
         shutil.copy2(clean_audio, vocal_audio)
         sf.write(str(background_audio), np.zeros(max(1, int(round(clean_duration * RATE))), dtype=np.float32), RATE)
-        analysis_audio = vocal_audio
+        diarization_audio = vocal_audio
+        transcription_audio = clean_audio
     finally:
         # CosyVoice is loaded later in the same container.  Do not keep
         # Demucs resident after the analysis phase on a 16GB card.
         unload_separation()
 
     raw_diarization = diarize(
-        analysis_audio,
+        diarization_audio,
         speaker_num if int(speaker_num) > 0 else None,
         include_overlap=bool(include_overlap),
     )
@@ -349,7 +382,7 @@ def analyse_timeline(
             }
         )
 
-    asr_result = transcribe_detailed([analysis_audio], return_time_stamps=True)[0]
+    asr_result = transcribe_detailed([transcription_audio], return_time_stamps=True)[0]
     timestamps = _decorate_timestamps(
         list(asr_result.get("time_stamps", []) or []),
         str(asr_result.get("text", "") or ""),
@@ -368,7 +401,8 @@ def analyse_timeline(
         "source_sha256": digest(source),
         "duration_sec": round(clean_duration, 3),
         "audio_path": str(clean_audio),
-        "analysis_audio_path": str(analysis_audio),
+        "analysis_audio_path": str(transcription_audio),
+        "diarization_audio_path": str(diarization_audio),
         "audio_stems": {
             "model": separation.get("model", "HDEMUCS_HIGH_MUSDB"),
             "available": bool(separation.get("available")),
@@ -382,11 +416,16 @@ def analyse_timeline(
         "speakers": speaker_items,
         "diarization": {
             "model": "3D-Speaker CAMPPlus + FSMN-VAD",
+            "speaker_num_requested": int(speaker_num),
             "include_overlap_requested": bool(include_overlap),
             "segments": diarization,
         },
         "transcription": {
-            "model": "Qwen3-ASR-0.6B + Qwen3-ForcedAligner-0.6B",
+            "model": (
+                f"{str(asr_result.get('model') or 'Qwen3-ASR')} + Qwen3-ForcedAligner-0.6B"
+                if timestamps
+                else str(asr_result.get("model") or "Qwen3-ASR")
+            ),
             "language": language,
             "text": str(asr_result.get("text", "") or ""),
             "timestamps_supported": bool(timestamps),
@@ -400,6 +439,7 @@ def analyse_timeline(
             "unassigned_segment_count": sum(1 for item in segments if item["speaker_id"] == "unknown"),
             "notes": [
                 "speaker_confidence 是时间轴覆盖度，不是模型原生概率。",
+                "说话人聚类使用分离后的人声轨；ASR 和时间戳使用清洁原轨，减少分离造成的字音损失。",
                 "人声与其余背景已先分成两路；两个人声同时说话时仍按同一人声路处理。",
             ],
         },
@@ -674,6 +714,7 @@ def _synthesise_segment(
     prompt_instruction: str,
     text_frontend: bool,
     seed: int,
+    voice_gain_db: float,
 ) -> dict[str, Any]:
     reference_audio = Path(str(speaker.get("reference_audio") or ""))
     if not reference_audio.exists():
@@ -701,6 +742,7 @@ def _synthesise_segment(
         text_frontend=text_frontend,
         seed=generation_seed,
     )
+    audio = tts.apply_gain(audio, voice_gain_db)
     tts.save_audio(raw_path, audio, model.sample_rate)
     initial_seconds = raw_seconds
     if adaptive_speed and target_duration > 0:
@@ -718,6 +760,7 @@ def _synthesise_segment(
                 text_frontend=text_frontend,
                 seed=generation_seed,
             )
+            audio = tts.apply_gain(audio, voice_gain_db)
             tts.save_audio(raw_path, audio, model.sample_rate)
     if fit_to_slot:
         _, final_seconds = fit_audio(raw_path, fitted_path, target_duration)
@@ -743,6 +786,7 @@ def _synthesise_segment(
         "raw_duration_sec": round(raw_seconds, 3),
         "final_duration_sec": round(final_seconds, 3),
         "speed": round(effective_speed, 3),
+        "voice_gain_db": round(float(voice_gain_db), 2),
         "audio_path": str(output_audio),
         "quality_flags": flags,
     }
@@ -920,6 +964,7 @@ def start_generation(
     target_original_volume: float,
     other_speaker_volume: float,
     background_volume: float,
+    voice_gain_db: float,
 ) -> dict[str, Any]:
     job, timeline = _load_timeline(job_id)
     all_segments = _apply_segment_edits(timeline, edits, selected_ids)
@@ -949,6 +994,7 @@ def start_generation(
         "target_original_volume": max(0.0, min(1.5, float(target_original_volume))),
         "other_speaker_volume": max(0.0, min(1.5, float(other_speaker_volume))),
         "background_volume": max(0.0, min(2.0, float(background_volume))),
+        "voice_gain_db": max(-12.0, min(18.0, float(voice_gain_db))),
     }
     generation_id = uuid.uuid4().hex[:12]
     with JOBS_LOCK:
@@ -1016,6 +1062,7 @@ def _run_generation(
                         prompt_instruction=str(request["prompt_instruction"]),
                         text_frontend=bool(request["text_frontend"]),
                         seed=int(request["seed"]),
+                        voice_gain_db=float(request["voice_gain_db"]),
                     )
                 )
         voice_track = output_root / "新配音人声.wav"
@@ -1050,6 +1097,7 @@ def _run_generation(
             ],
             "notes": [
                 "视频导出使用人声/背景两路混音；目标说话人的原声按设置压低，其他说话人按设置保留。",
+                f"新配音响度增益：{float(request['voice_gain_db']):.2f} dB，峰值超过限制时自动防止削波。",
                 "两个人声同时说话时只能作为同一人声路处理，无法只从混音中精确拆开其中一个人。",
             ],
         }

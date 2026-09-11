@@ -68,6 +68,7 @@
           <span class="help"><span class="term" title="默认推荐：只用参考声音提取音色，不要求你先听写台词。">新手建议先用无需参考台词模式</span></span>
         </label>
           <label>speed<input id="speed" type="number" min="0.5" max="2" step="0.05" value="1"></label>
+          <label>输出响度增益（dB）<input id="output-gain-db" type="number" min="-12" max="18" step="0.5" value="6"><span class="help">默认 +6 dB；过高时自动防止削波</span></label>
           <label>目标时长（秒）<input id="target-duration" type="number" min="0.5" max="120" step="0.5" value="5"></label>
           <label>随机 seed<input id="seed" type="number" min="0" max="2147483647" step="1" value="0"><span class="help">官方 WebUI 同样设置随机 seed</span></label>
           <label class="wide">
@@ -185,6 +186,7 @@
     data.append('noise_reduction', document.getElementById('noise-reduction').value);
     data.append('trim_leading_silence', document.getElementById('trim-leading-silence').checked ? 'true' : 'false');
     data.append('speed', document.getElementById('speed').value);
+    data.append('output_gain_db', document.getElementById('output-gain-db').value);
     data.append('seed', document.getElementById('seed').value);
     data.append('text_frontend', document.getElementById('text-frontend').checked ? 'true' : 'false');
     data.append('target_duration', document.getElementById('target-duration').value);
