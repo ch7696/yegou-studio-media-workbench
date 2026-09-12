@@ -34,6 +34,21 @@ let segments = [];
 let analysisTimeline = null;
 let analysisJobId = '';
 let selectedIndex = -1;
+let defaultOutputDir = '';
+const defaultOutputReady = fetch('/api/system/config', { cache: 'no-store' })
+  .then(response => response.ok ? response.json() : {})
+  .then(config => {
+    defaultOutputDir = String(config.default_output || '');
+    if (defaultOutputDir) {
+      document.querySelectorAll('[data-default-output]').forEach(node => { node.textContent = defaultOutputDir; });
+    }
+  })
+  .catch(() => {});
+
+async function configuredOutputDir() {
+  await defaultOutputReady;
+  return defaultOutputDir;
+}
 
 const expressionInstructions = {
   natural: 'You are a helpful assistant. 请用自然、像真人交流一样的语气说话，保持正常语速和自然的情绪起伏。',
@@ -345,7 +360,7 @@ async function startAnalysis() {
   setStatus(timelineStatus, '正在提交全片分析任务…');
   const data = new FormData();
   data.append('media', sourceFile);
-  data.append('output_dir', 'F:\\voice');
+  data.append('output_dir', await configuredOutputDir());
   data.append('speaker_num', document.getElementById('analysis-speaker-num').value || '0');
   data.append('noise_reduction', document.getElementById('analysis-noise-reduction').value || '8');
   data.append('include_overlap', document.getElementById('analysis-overlap').checked ? 'true' : 'false');
@@ -358,7 +373,7 @@ async function startAnalysis() {
     renderSegments();
     markStep(2);
     const backend = document.getElementById('analysis-backend')?.value || 'sortformer';
-    setStatus(timelineStatus, `任务 ${analysisJobId} 已开始：${job.output_dir || '输出到 F:\\voice'}\n正在等待 ${backend} 和 Qwen3-ASR…`);
+    setStatus(timelineStatus, `任务 ${analysisJobId} 已开始：${job.output_dir || '输出到服务器默认目录'}\n正在等待 ${backend} 和 Qwen3-ASR…`);
     await pollJob('analysis');
   } catch (error) {
     setStatus(timelineStatus, error.message || String(error), 'error');
@@ -438,7 +453,7 @@ async function pollJob(kind) {
       await refreshTimeline();
       const quality = job.quality || {};
       const stems = analysisTimeline?.audio_stems?.available ? '人声 / 背景两路已生成' : '两路分离回退，时间轴仍可用';
-      setStatus(timelineStatus, `分析完成：${job.speaker_count || 0} 个说话人，${job.segment_count || 0} 个台词片段；${stems}。输出：${job.output_dir || 'F:\\voice'}`);
+      setStatus(timelineStatus, `分析完成：${job.speaker_count || 0} 个说话人，${job.segment_count || 0} 个台词片段；${stems}。输出：${job.output_dir || '服务器默认目录'}`);
       let message = '请选择目标说话人，绑定参考音色，修改台词后点击“暂存时间轴”和“替换并导出”。';
       if (quality.low_confidence_segment_count) message += `\n有 ${quality.low_confidence_segment_count} 个片段覆盖度偏低，建议试听或调整筛选。`;
       setStatus(document.getElementById('batch-status'), message, quality.low_confidence_segment_count ? 'warn' : '');
@@ -512,7 +527,7 @@ async function generatePreview() {
   const end = Number(endInput.value) || 0;
   const seconds = referenceSourceFile ? Math.max(1, Math.min(30, Number(referenceSecondsInput.value) || 10)) : Math.max(.5, end - start);
   data.append('reference_media', file);
-  data.append('output_dir', 'F:\\voice');
+  data.append('output_dir', await configuredOutputDir());
   data.append('mode', ttsMode.value);
   data.append('reference_text', ttsMode.value === 'zero_shot' ? referenceText.value : '');
   data.append('prompt_instruction', ttsInstruction.value);

@@ -3,187 +3,259 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>本地音视频工作台</title>
+  <title>野构 Studio · 声像制片台</title>
+  <link rel="icon" href="/brand-logo.png" type="image/png">
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #0b111a;
-      --panel: #151e2b;
-      --line: #2a394d;
-      --text: #f1f5fb;
-      --muted: #9eabbc;
-      --blue: #78aaff;
-      --cyan: #55d4da;
-      --green: #75d99c;
+      color-scheme: light;
+      --paper: #f6f6f3;
+      --surface: #ffffff;
+      --surface-soft: #fbfbf9;
+      --ink: #171717;
+      --muted: #5d5d57;
+      --faint: #77776f;
+      --line: #e5e5df;
+      --line-strong: #d8d8d1;
+      --orange: #f15b2a;
+      --orange-dark: #d9481a;
+      --orange-soft: #fff0e9;
+      --green: #287b50;
+      --green-soft: #edf7f0;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 18% -10%, #203b68 0, transparent 34rem), var(--bg); color: var(--text); font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    html { background: var(--paper); }
+    body { margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink); font: 14px/1.55 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; }
     a { color: inherit; text-decoration: none; }
-    .shell { max-width: 1180px; margin: 0 auto; padding: 26px 28px 46px; }
-    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 62px; }
-    .topbar-right { display: flex; align-items: center; justify-content: flex-end; gap: 18px; min-width: 0; }
-    .brand { display: flex; align-items: center; gap: 11px; font-size: 17px; font-weight: 760; }
-    .brand-mark { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; background: linear-gradient(135deg, #5c9bff, #52d3d5); color: #091422; font-weight: 900; }
-    .nav { display: flex; gap: 16px; color: var(--muted); font-size: 13px; }
-    .nav a:first-child { color: var(--text); }
-    .console-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
-    .memory-button { min-height: 34px; padding: 0 12px; border: 1px solid #3e6590; border-radius: 8px; background: #172b43; color: #dceaff; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; }
-    .memory-button:hover { border-color: #6da9ef; background: #1d3b5d; }
-    .memory-button:disabled { cursor: wait; opacity: .65; }
-    .memory-status { max-width: 260px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-    .hero { max-width: 790px; margin: 0 auto 38px; text-align: center; }
-    .eyebrow { color: var(--cyan); font-size: 11px; font-weight: 760; letter-spacing: .1em; text-transform: uppercase; }
-    h1 { margin: 8px 0 10px; font-size: clamp(28px, 4vw, 42px); letter-spacing: -.035em; }
-    h2 { margin: 0; font-size: 21px; }
-    p { margin: 7px 0 0; color: var(--muted); }
-    .hero p { font-size: 15px; }
-    .entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
-    .entry { display: flex; flex-direction: column; min-height: 350px; padding: 25px; border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(180deg, rgba(24,35,51,.98), rgba(17,25,37,.98)); box-shadow: 0 14px 38px rgba(0,0,0,.18); }
-    .entry.dubbing { border-color: #3c689d; background: linear-gradient(180deg, rgba(28,54,88,.98), rgba(17,27,42,.98)); }
-    .entry-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-    .entry-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 13px; background: #203756; color: var(--blue); font-size: 23px; font-weight: 850; }
-    .dubbing .entry-icon { background: #214e69; color: var(--cyan); }
-    .entry-copy { min-height: 82px; margin-top: 20px; }
-    .flow { display: grid; gap: 10px; margin: 20px 0 24px; }
-    .flow-row { display: grid; grid-template-columns: 30px 1fr; gap: 11px; align-items: center; color: #d7e2f0; }
-    .flow-row::before { content: attr(data-step); width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid #49698e; border-radius: 50%; color: var(--blue); font-size: 12px; }
-    .flow-row span { color: var(--muted); font-size: 13px; }
-    .entry-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; }
-    .entry-link { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 16px; border-radius: 8px; background: #2867ba; font-weight: 700; }
-    .entry-link:hover { background: #377ed5; }
-    .entry-note { color: var(--muted); font-size: 12px; }
-    .info { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
-    .info-card { padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: rgba(16,24,36,.8); }
-    .info-card strong { display: block; margin-bottom: 3px; }
-    .info-card span { color: var(--muted); font-size: 12px; }
-    .tools { margin-top: 28px; text-align: center; color: var(--muted); font-size: 12px; }
-    .tools a { color: var(--blue); }
-    .footer { margin-top: 35px; color: var(--muted); font-size: 12px; text-align: center; }
-    @media (max-width: 760px) {
-      .shell { padding: 18px 14px 32px; }
-      .topbar { margin-bottom: 42px; }
-      .topbar-right { flex-wrap: wrap; gap: 10px; }
-      .nav { gap: 9px; }
-      .entry-grid, .info { grid-template-columns: 1fr; }
-      .entry { min-height: 0; }
-      .entry-footer { align-items: flex-start; flex-direction: column; }
+    button { font: inherit; }
+    .topbar { height: 76px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.94); }
+    .topbar-inner { max-width: 1320px; height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 26px; margin: 0 auto; padding: 0 32px; }
+    .brand { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-logo-wrap { width: 72px; height: 44px; display: grid; place-items: center; overflow: hidden; flex: 0 0 auto; background: #fff url('/brand-logo.png') no-repeat -17px -15px; background-size: 108px 108px; }
+    .brand-logo { display: none; }
+    .brand-copy { display: grid; gap: 1px; min-width: 0; }
+    .brand-copy strong { overflow: hidden; font-size: 15px; font-weight: 780; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+    .brand-copy span { color: var(--faint); font-size: 9px; font-weight: 700; letter-spacing: .14em; white-space: nowrap; }
+    .top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 24px; }
+    .nav { display: flex; align-items: center; gap: 18px; color: var(--muted); font-size: 12px; }
+    .nav a { color: var(--muted); }
+    .nav a:hover, .nav a.active { color: var(--ink); font-weight: 700; text-decoration: underline; text-decoration-color: var(--orange); text-decoration-thickness: 2px; text-underline-offset: 7px; }
+    .github-link { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .github-link:hover { color: var(--ink); text-decoration: underline; text-decoration-color: var(--orange); text-underline-offset: 7px; }
+    .memory-button { min-height: 34px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface); color: #41413d; cursor: pointer; font-size: 12px; font-weight: 700; }
+    .memory-button:hover { border-color: var(--orange); color: var(--orange-dark); background: #fffaf7; }
+    .memory-button:disabled { cursor: wait; opacity: .58; }
+    .layout { max-width: 1320px; display: grid; grid-template-columns: 1fr; margin: 0 auto; padding: 34px 32px 46px; }
+    .content { min-width: 0; }
+    .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
+    .kicker { color: var(--orange-dark); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { margin: 5px 0 5px; font-size: clamp(26px, 3vw, 34px); font-weight: 780; letter-spacing: -.045em; line-height: 1.18; }
+    .page-head p { max-width: 620px; margin: 0; color: var(--muted); font-size: 13px; }
+    .page-meta { display: grid; justify-items: end; gap: 4px; color: var(--faint); font-size: 11px; white-space: nowrap; }
+    .page-meta strong { color: #4d4d48; font-size: 12px; font-weight: 700; }
+    .work-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
+    .work-card { position: relative; display: flex; min-height: 292px; flex-direction: column; padding: 22px; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); box-shadow: 0 5px 18px rgba(25,25,20,.035); transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
+    .work-card:hover { border-color: #c9c9c1; box-shadow: 0 9px 24px rgba(25,25,20,.07); transform: translateY(-1px); }
+    .work-card.primary { border-top: 3px solid var(--orange); }
+    .work-card.secondary { border-top: 3px solid #222; }
+    .work-card.utility { border-top: 3px solid #77776f; }
+    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+    .card-index { color: var(--faint); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+    .card-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 8px; background: var(--orange-soft); color: var(--orange-dark); font-size: 18px; font-weight: 800; }
+    .secondary .card-icon { background: #f0f0ed; color: #222; }
+    .work-card h2 { margin: 18px 0 7px; font-size: 20px; font-weight: 760; letter-spacing: -.03em; }
+    .work-card p { max-width: 420px; min-height: 47px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+    .card-flow { display: flex; align-items: center; gap: 8px; margin: auto 0 20px; padding-top: 20px; color: #4b4b46; font-size: 11px; }
+    .card-flow span { padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-soft); white-space: nowrap; }
+    .card-flow i { color: var(--faint); font-style: normal; }
+    .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    .card-open { color: var(--orange-dark); font-weight: 750; white-space: nowrap; }
+    .secondary .card-open { color: var(--ink); }
+    .lower-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, .65fr); gap: 15px; margin-top: 28px; }
+    .panel { min-height: 176px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.66); }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+    .panel-head strong { font-size: 13px; }
+    .panel-head span { color: var(--faint); font-size: 11px; }
+    .empty { display: grid; justify-items: center; gap: 4px; padding: 22px 10px 8px; text-align: center; }
+    .empty-mark { width: 27px; height: 27px; display: grid; place-items: center; margin-bottom: 4px; border: 1px dashed #c9c9c1; border-radius: 50%; color: var(--orange); font-size: 17px; }
+    .empty strong { font-size: 12px; }
+    .empty span { color: var(--muted); font-size: 11px; }
+    .capability-list { display: grid; gap: 11px; padding-top: 15px; }
+    .capability-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; color: var(--muted); font-size: 11px; }
+    .capability-row strong { color: #40403b; font-weight: 650; text-align: right; }
+    .status-list { display: grid; gap: 11px; padding-top: 16px; }
+    .status-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 11px; }
+    .status-row strong { color: #40403b; font-weight: 650; }
+    .status-ok { color: var(--green) !important; }
+    .footer { max-width: 1320px; margin: 0 auto; padding: 0 32px 28px; color: var(--faint); font-size: 11px; }
+    @media (max-width: 920px) {
+      .layout { grid-template-columns: 1fr; gap: 18px; padding-top: 24px; }
+    }
+    @media (max-width: 680px) {
+      .topbar { height: auto; }
+      .topbar-inner { align-items: flex-start; flex-direction: column; gap: 9px; padding: 10px 16px; }
+      .top-actions { width: 100%; justify-content: space-between; align-items: flex-start; gap: 10px; }
+      .nav { gap: 11px; flex-wrap: wrap; }
+      .layout { padding: 20px 16px 34px; }
+      .page-head { align-items: flex-start; flex-direction: column; gap: 12px; }
+      .page-meta { justify-items: start; }
+      .work-grid, .lower-grid { grid-template-columns: 1fr; }
+      .work-card { min-height: 270px; }
+      .card-flow { flex-wrap: wrap; }
+      .footer { padding: 0 16px 24px; }
     }
   </style>
 </head>
 <body>
-<main class="shell">
   <header class="topbar">
-    <a class="brand" href="/"><span class="brand-mark">声</span><span>本地音视频工作台</span></a>
-    <div class="topbar-right">
-      <nav class="nav"><a href="/">主页</a><a href="/assets">语音资产</a><a href="/studio">视频配音</a><a href="/timeline">时间线配音</a></nav>
-      <div class="console-actions" aria-label="全局控制台">
-        <button id="release-vram" class="memory-button" type="button" title="释放 7866 工作台和独立 ASR 服务的模型显存，服务保持在线">释放显存</button>
-        <span id="memory-status" class="memory-status" role="status">状态读取中</span>
+    <div class="topbar-inner">
+      <a class="brand" href="/" aria-label="返回野构 Studio">
+        <span class="brand-logo-wrap"><img class="brand-logo" src="/brand-logo.png" alt="野构 Studio"></span>
+        <span class="brand-copy"><strong>野构 Studio</strong><span>MEDIA WORKSPACE</span></span>
+      </a>
+      <div class="top-actions">
+        <nav class="nav" aria-label="主导航">
+          <a class="active" href="/">主页</a>
+          <a href="/timeline">时间线配音</a>
+          <a href="/studio">角色配音</a>
+          <a href="/assets">语音资产</a>
+          <a href="/tts">独立试音</a>
+        </nav>
+        <a id="github-link" class="github-link" href="#" target="_blank" rel="noreferrer" hidden>GitHub 主仓</a>
+        <button id="release-vram" class="memory-button" type="button" title="释放模型显存，服务保持在线">释放显存</button>
       </div>
     </div>
   </header>
 
-  <section class="hero">
-    <div class="eyebrow">LOCAL MEDIA WORKBENCH</div>
-    <h1>先整理声音，再重新配音</h1>
-    <p>这里有两条独立流水线。根据你现在要做的事情选择入口，页面会按顺序带你走完每一步。</p>
-  </section>
+  <div class="layout">
+    <main class="content">
+      <section class="page-head">
+        <div>
+          <div class="kicker">WORKSPACE / HOME</div>
+          <h1>野构声像制片台</h1>
+        </div>
+        <div class="page-meta"><strong>输出目录：<span data-default-output>服务器默认目录</span></strong><span>原始素材不会被覆盖</span></div>
+      </section>
 
-  <section class="entry-grid" aria-label="工作入口">
-    <a class="entry" href="/assets">
-      <div class="entry-head">
-        <div><div class="eyebrow">01 / VOICE ASSETS</div><h2>识别并提取语音资产</h2></div>
-        <span class="entry-icon">声</span>
-      </div>
-      <p class="entry-copy">上传一段音频或视频，识别里面有哪些说话人，清洁并截取每个人的参考音色，最后保存成可以反复使用的资产。</p>
-      <div class="flow">
-        <div class="flow-row" data-step="1">导入音频或视频 <span>选择原始素材</span></div>
-        <div class="flow-row" data-step="2">识别说话人 <span>ASR + 说话人聚类</span></div>
-        <div class="flow-row" data-step="3">清洁并切片 <span>生成每个说话人的参考音频</span></div>
-        <div class="flow-row" data-step="4">保存资产 <span>输出到 F:\voice</span></div>
-      </div>
-      <div class="entry-footer"><span class="entry-note">适合先把素材整理成音色库</span><span class="entry-link">进入资产流水线&nbsp;→</span></div>
-    </a>
+      <section class="work-grid" aria-label="四个工作入口">
+        <a class="work-card primary" href="/timeline">
+          <div class="card-head"><div class="card-index">01 / NARRATION</div><span class="card-icon">旁</span></div>
+          <h2>时间线配音</h2>
+          <p>导入视频、SRT、VTT 或 JSON 时间线，按字幕起止时间逐段生成配音并导出。</p>
+          <div class="card-flow"><span>视频</span><i>→</i><span>时间线</span><i>→</i><span>配音视频</span></div>
+          <div class="card-foot"><span>当前支持字幕驱动配音</span><span class="card-open">打开流程&nbsp;→</span></div>
+        </a>
 
-    <a class="entry dubbing" href="/studio">
-      <div class="entry-head">
-        <div><div class="eyebrow">02 / DUBBING</div><h2>按说话人替换视频配音</h2></div>
-        <span class="entry-icon">配</span>
-      </div>
-      <p class="entry-copy">导入需要处理的视频，自动生成说话人时间轴。筛选一个说话人，绑定参考音色，逐句试听或一次替换他的全部台词，保留背景和音效后导出。</p>
-      <div class="flow">
-        <div class="flow-row" data-step="1">导入视频 <span>原视频不会被覆盖</span></div>
-        <div class="flow-row" data-step="2">分析音轨 <span>人声 / 背景两路分离</span></div>
-        <div class="flow-row" data-step="3">筛选说话人 <span>查看完整台词和时间戳</span></div>
-        <div class="flow-row" data-step="4">绑定并试听 <span>参考音色 + 新台词</span></div>
-        <div class="flow-row" data-step="5">批量替换并导出 <span>保留背景与音效；无声视频可导入字幕时间线</span></div>
-      </div>
-      <div class="entry-footer"><span class="entry-note">适合整段视频的目标人物替换</span><span class="entry-link">进入配音流水线&nbsp;→</span></div>
-    </a>
-  </section>
+        <a class="work-card secondary" href="/studio">
+          <div class="card-head"><div class="card-index">02 / CHARACTER</div><span class="card-icon">声</span></div>
+          <h2>角色配音</h2>
+          <p>识别视频中的说话人，绑定参考音色，替换指定角色的台词并保留背景音效。</p>
+          <div class="card-flow"><span>分析音轨</span><i>→</i><span>绑定音色</span><i>→</i><span>替换导出</span></div>
+          <div class="card-foot"><span>适合角色台词替换</span><span class="card-open">打开流程&nbsp;→</span></div>
+        </a>
+        <a class="work-card utility" href="/assets">
+          <div class="card-head"><div class="card-index">03 / ASSETS</div><span class="card-icon">库</span></div>
+          <h2>语音资产</h2>
+          <p>上传音频或视频，识别说话人并整理清洁后的参考音色资产。</p>
+          <div class="card-flow"><span>导入媒体</span><i>→</i><span>识别说话人</span><i>→</i><span>保存资产</span></div>
+          <div class="card-foot"><span>整理可复用参考音色</span><span class="card-open">打开流程&nbsp;→</span></div>
+        </a>
+        <a class="work-card utility" href="/tts">
+          <div class="card-head"><div class="card-index">04 / VOICE TEST</div><span class="card-icon">试</span></div>
+          <h2>独立试音</h2>
+          <p>直接上传参考音频或视频，按 CosyVoice3 官方模式生成试音。</p>
+          <div class="card-flow"><span>参考媒体</span><i>→</i><span>输入文本</span><i>→</i><span>生成试音</span></div>
+          <div class="card-foot"><span>快速验证音色效果</span><span class="card-open">打开流程&nbsp;→</span></div>
+        </a>
+      </section>
 
-  <section class="info" aria-label="系统说明">
-    <div class="info-card"><strong>输出统一</strong><span>所有项目结果保存到 Windows 的 F:\voice，原始文件不覆盖。</span></div>
-    <div class="info-card"><strong>模型分工</strong><span>识别使用 Qwen3-ASR + 说话人模型，配音使用 CosyVoice3。</span></div>
-    <div class="info-card"><strong>高级工具</strong><span>需要直接拿参考音频试音时，可使用下方独立工具。</span></div>
-  </section>
-  <div class="tools"><a href="/timeline">打开无声视频时间线配音</a>　·　<a href="/tts">打开独立 TTS 试音工具</a></div>
-  <div class="footer">本地运行 · 任务数据和模型保存在 WSL / Windows 本机</div>
-</main>
-<script>
-(() => {
-  const button = document.getElementById("release-vram");
-  const status = document.getElementById("memory-status");
-  if (!button || !status) return;
+      <section class="lower-grid">
+        <div class="panel">
+          <div class="panel-head"><strong>当前支持</strong><span>按实际接口提供</span></div>
+          <div class="capability-list">
+            <div class="capability-row"><span>媒体输入</span><strong>音频 / 视频</strong></div>
+            <div class="capability-row"><span>时间线输入</span><strong>SRT / VTT / JSON</strong></div>
+            <div class="capability-row"><span>结果输出</span><strong>音频、视频和参考音色</strong></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><strong>系统状态</strong><span id="memory-status">检测中</span></div>
+          <div class="status-list">
+            <div class="status-row"><span>7866 工作台</span><strong class="status-ok">在线</strong></div>
+            <div class="status-row"><span>模型加载方式</span><strong>按需加载</strong></div>
+            <div class="status-row"><span>显存状态</span><strong id="memory-detail">读取中</strong></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
 
-  const formatMemory = (payload) => {
-    const cuda = payload && payload.cuda;
-    if (!cuda || !cuda.available || typeof cuda.reserved_mb !== "number") return "";
-    return `缓存 ${cuda.reserved_mb} MB`;
-  };
+  <div class="footer">野构 Studio</div>
 
-  const render = (payload, message = "") => {
-    const parts = [];
-    if (payload && payload.webui_online) parts.push("WebUI 在线");
-    if (payload && payload.tts_loaded) parts.push("TTS 已加载");
-    if (payload && payload.separation_loaded) parts.push("分离模型已加载");
-    const memory = formatMemory(payload);
-    if (memory) parts.push(memory);
-    status.textContent = message || (parts.length ? parts.join(" · ") : "WebUI 在线");
-    status.title = status.textContent;
-  };
+  <script>
+  (() => {
+    const button = document.getElementById("release-vram");
+    const githubLink = document.getElementById("github-link");
+    const status = document.getElementById("memory-status");
+    const detail = document.getElementById("memory-detail");
+    if (!button || !status || !detail) return;
 
-  const refresh = async () => {
-    try {
-      const response = await fetch("/api/system/memory", { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.detail || "状态读取失败");
-      render(payload);
-    } catch (error) {
-      status.textContent = `状态读取失败：${error.message || error}`;
-    }
-  };
+    fetch("/api/system/config", { cache: "no-store" }).then(response => response.ok ? response.json() : null).then(config => {
+      const output = config && config.default_output;
+      if (output) document.querySelectorAll("[data-default-output]").forEach(node => { node.textContent = output; });
+      const githubUrl = String((config && config.github_url) || "");
+      if (githubLink && (githubUrl.startsWith("https://") || githubUrl.startsWith("http://"))) {
+        githubLink.href = githubUrl;
+        githubLink.hidden = false;
+      }
+    }).catch(() => {});
 
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    button.textContent = "释放中…";
-    status.textContent = "正在释放模型显存，WebUI 保持在线…";
-    try {
-      const response = await fetch("/api/system/release-memory", { method: "POST" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.detail || "释放失败");
-      render(payload, payload.message || "显存已释放，WebUI 在线");
-    } catch (error) {
-      status.textContent = `释放失败：${error.message || error}`;
+    const render = (payload, message = "") => {
+      const cuda = payload && payload.cuda;
+      const memory = cuda && cuda.available && typeof cuda.reserved_mb === "number"
+        ? `CUDA 缓存 ${cuda.reserved_mb} MB`
+        : "CUDA 状态未知";
+      const models = [];
+      if (payload && payload.tts_loaded) models.push("TTS 已加载");
+      if (payload && payload.separation_loaded) models.push("分离模型已加载");
+      status.textContent = message || (models.length ? models.join(" · ") : "模型未加载");
+      detail.textContent = `${memory}${models.length ? " · " + models.join(" · ") : " · 空闲"}`;
       status.title = status.textContent;
-    } finally {
-      button.disabled = false;
-      button.textContent = "释放显存";
-    }
-  });
+      detail.title = detail.textContent;
+    };
 
-  refresh();
-})();
-</script>
+    const refresh = async () => {
+      try {
+        const response = await fetch("/api/system/memory", { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "状态读取失败");
+        render(payload);
+      } catch (error) {
+        status.textContent = "状态读取失败";
+        detail.textContent = error.message || String(error);
+      }
+    };
+
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      button.textContent = "释放中…";
+      status.textContent = "释放中";
+      detail.textContent = "正在清理模型缓存…";
+      try {
+        const response = await fetch("/api/system/release-memory", { method: "POST" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "释放失败");
+        render(payload, payload.message || "显存已释放");
+      } catch (error) {
+        status.textContent = "释放失败";
+        detail.textContent = error.message || String(error);
+      } finally {
+        button.disabled = false;
+        button.textContent = "释放显存";
+      }
+    });
+
+    refresh();
+  })();
+  </script>
 </body>
 </html>

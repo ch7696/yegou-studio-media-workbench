@@ -18,6 +18,8 @@ IMAGE="ragflow-cosyvoice-speaker:0.0.4"
 CONTAINER="ragflow-model-speaker-webui"
 PORT="${SPEAKER_WEBUI_PORT:-7866}"
 ASR_API_PORT="${ASR_API_PORT:-18763}"
+VOICE_DEFAULT_OUTPUT="${VOICE_DEFAULT_OUTPUT:-/mnt/f/voice}"
+GITHUB_REPOSITORY_URL="${GITHUB_REPOSITORY_URL:-}"
 DIARIZATION_BACKEND="${DIARIZATION_BACKEND:-sortformer}"
 SPEAKER_ASSIGNMENT_STRATEGY="${SPEAKER_ASSIGNMENT_STRATEGY:-posterior}"
 # Optional token is needed only by the official 3D-Speaker overlap module.
@@ -52,7 +54,8 @@ exec docker run -d \
   -e PYTHONUNBUFFERED=1 \
   -e ASR_SERVICE_URL="http://host.docker.internal:${ASR_API_PORT}" \
   -e VOICE_STATE_DIR=/state \
-  -e VOICE_DEFAULT_OUTPUT=/mnt/f/voice \
+  -e VOICE_DEFAULT_OUTPUT="$VOICE_DEFAULT_OUTPUT" \
+  -e GITHUB_REPOSITORY_URL="$GITHUB_REPOSITORY_URL" \
   -e COSYVOICE_MODEL_DIR=/models/Fun-CosyVoice3-0.5B \
   -e QWEN_ASR_MODEL_DIR="$ASR_CONTAINER_DIR" \
   -e QWEN_FORCED_ALIGNER_DIR=/models/Qwen3-ForcedAligner-0.6B \

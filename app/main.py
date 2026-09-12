@@ -29,6 +29,7 @@ from .config import (
     DIRECT_TTS_WORK,
     DUBBING_UPLOADS,
     DUBBING_WORK,
+    GITHUB_REPOSITORY_URL,
     MANIFESTS,
     RESULTS,
     UPLOADS,
@@ -43,7 +44,7 @@ from .utils import digest, load_manifest, probe, safe_name, save_json, to_window
 
 
 ensure_directories()
-app = FastAPI(title="多人参考音色资产工作台")
+app = FastAPI(title="野构 Studio 声像制片台")
 MEMORY_RELEASE_LOCK = threading.Lock()
 
 
@@ -101,6 +102,16 @@ def dubbing_studio_script() -> FileResponse:
     return FileResponse(Path("/app/web/studio.js"), media_type="application/javascript")
 
 
+@app.get("/console.css")
+def console_stylesheet() -> FileResponse:
+    return FileResponse(Path("/app/web/console.css"), media_type="text/css")
+
+
+@app.get("/brand-logo.png")
+def brand_logo() -> FileResponse:
+    return FileResponse(Path("/app/web/brand-logo.png"), media_type="image/png")
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     return {
@@ -121,6 +132,17 @@ def system_memory() -> dict[str, Any]:
     """Expose the 7866 workbench's model and CUDA cache state."""
 
     return {"ok": True, **_memory_status()}
+
+
+@app.get("/api/system/config")
+def system_config() -> dict[str, Any]:
+    """Expose deployment-provided defaults to the browser UI."""
+
+    return {
+        "ok": True,
+        "default_output": to_windows_path(DEFAULT_OUTPUT),
+        "github_url": GITHUB_REPOSITORY_URL,
+    }
 
 
 @app.post("/api/system/release-memory")
@@ -187,7 +209,7 @@ def release_memory() -> dict[str, Any]:
 @app.post("/api/analyze")
 async def analyze(
     file: UploadFile = File(...),
-    output_dir: str = Form("F:\\voice"),
+    output_dir: str = Form(""),
     speaker_num: int = Form(0),
     sample_seconds: float = Form(10.0),
     noise_reduction: float = Form(12.0),
@@ -226,7 +248,7 @@ async def analyze(
 @app.post("/api/dubbing/analyze", status_code=202)
 async def start_dubbing_analysis(
     media: UploadFile = File(...),
-    output_dir: str = Form("F:\\voice"),
+    output_dir: str = Form(""),
     speaker_num: int = Form(0),
     noise_reduction: float = Form(8.0),
     include_overlap: bool = Form(True),
@@ -448,7 +470,7 @@ async def start_timeline_dubbing(
     video: UploadFile = File(...),
     timeline: UploadFile = File(...),
     reference_media: UploadFile = File(...),
-    output_dir: str = Form("F:\\voice"),
+    output_dir: str = Form(""),
     mode: str = Form("cross_lingual"),
     reference_text: str = Form(""),
     prompt_instruction: str = Form(tts.DEFAULT_PROMPT_INSTRUCTION),
@@ -640,7 +662,7 @@ async def reference_transcript(
 @app.post("/api/tts/direct")
 async def direct_tts(
     reference_media: UploadFile = File(...),
-    output_dir: str = Form("F:\\voice"),
+    output_dir: str = Form(""),
     mode: str = Form("cross_lingual"),
     reference_text: str = Form(""),
     prompt_instruction: str = Form(tts.DEFAULT_PROMPT_INSTRUCTION),

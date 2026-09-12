@@ -12,7 +12,7 @@
 
 ### 1. 语音与配音工作台
 
-项目：`/home/administrator/voice-asset-workbench`
+项目：野构 Studio 声像制片台（仓库路径由部署环境决定）
 
 负责：
 
@@ -131,7 +131,7 @@ flowchart LR
 
 云端只部署媒体生产链路：
 
-- `voice-asset-workbench` 的 ASR、CosyVoice 和时间戳功能
+- 野构 Studio 声像制片台的 ASR、CosyVoice 和时间戳功能
 - `media-analysis-vision-studio` 的 MiniCPM-V 视觉分析
 - HunyuanOCR 和 PaddleOCR-VL（需要时再启用）
 - 独立的输入、输出和模型数据盘
@@ -174,4 +174,3 @@ flowchart LR
 - 语音引擎回答“谁在说话、说了什么，以及如何重新配音”。
 - 统一入口负责把两个结果串成可执行的生产流程。
 - RAGFlow 留在本机，继续承担文章知识库和检索工作。
-

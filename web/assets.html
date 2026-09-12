@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>识别并提取语音资产</title>
+  <link rel="icon" href="/brand-logo.png" type="image/png">
   <style>
     :root { color-scheme: dark; --bg:#0d1118; --panel:#171f2c; --panel-2:#111925; --line:#2c394c; --text:#f1f5fb; --muted:#9eabbc; --blue:#78aaff; --blue-2:#2c68bd; --cyan:#55d4da; --green:#75d99c; --yellow:#ffd17a; --red:#ff9292; }
     * { box-sizing:border-box; }
@@ -47,12 +48,16 @@
     .footer { margin-top:18px; color:var(--muted); font-size:12px; text-align:center; }
     @media (max-width:800px) { .shell { padding:15px 14px 32px; } .topbar,.hero { display:block; } .nav { margin-top:12px; } .steps { min-width:0; margin-top:18px; } .form-grid,.sample { grid-template-columns:1fr; } label.wide { grid-column:auto; } .check { padding-top:0; } }
   </style>
+  <link rel="stylesheet" href="/console.css?v=20260912">
 </head>
-<body>
+<body class="console-page">
 <main class="shell">
   <header class="topbar">
-    <a class="brand" href="/"><span class="brand-mark">声</span><span>本地音视频工作台</span></a>
-    <nav class="nav"><a href="/">主页</a><a href="/assets">语音资产</a><a href="/studio">视频配音</a><a href="/timeline">时间线配音</a></nav>
+    <a class="brand" href="/">
+      <span class="brand-logo-wrap"><img class="brand-logo" src="/brand-logo.png" alt="野构 Studio"></span>
+      <span class="brand-copy"><strong>野构 Studio</strong><span>VOICE ASSETS</span></span>
+    </a>
+    <nav class="nav"><a href="/">主页</a><a href="/timeline">时间线配音</a><a href="/studio">角色配音</a><a class="active" href="/assets">语音资产</a><a href="/tts">独立试音</a></nav>
   </header>
 
   <section class="hero">
@@ -66,11 +71,11 @@
 
   <section class="flow">
     <section class="card">
-      <div class="card-head"><div><div class="eyebrow">01 / INPUT</div><h2>导入原始媒体</h2><p>选择包含人声的音频或视频。原始文件只作为输入，系统不会覆盖它。</p></div><span class="chip ok">输出到 F:\voice</span></div>
+      <div class="card-head"><div><div class="eyebrow">01 / INPUT</div><h2>导入原始媒体</h2><p>选择包含人声的音频或视频。原始文件只作为输入，系统不会覆盖它。</p></div><span class="chip ok">输出到 <span data-default-output>默认目录</span></span></div>
       <form id="analyzeForm">
         <div class="form-grid">
           <label class="wide">音频 / 视频文件<input name="file" type="file" accept="audio/*,video/*" required></label>
-          <label>资产输出目录<input name="output_dir" value="F:\\voice"><span class="help">Windows 路径；容器会自动转换。</span></label>
+          <label>资产输出目录<input name="output_dir" value="" placeholder="使用服务器默认目录"><span class="help">留空使用服务器配置；支持 Windows 或 Linux 路径。</span></label>
           <label>已知说话人数<input name="speaker_num" type="number" min="0" step="1" value="0"><span class="help">不知道就填 0；知道人数时填写会更稳定。</span></label>
           <label>每个参考样本秒数<input name="sample_seconds" type="number" min="1" max="30" step="1" value="10"><span class="help">建议 6–15 秒；最多 30 秒。</span></label>
         </div>
@@ -96,7 +101,7 @@
     </section>
   </section>
 
-  <div class="footer"><a href="/studio">下一步：进入视频重新配音流水线 →</a><br>所有结果按项目目录保存到 F:\voice；原始文件不会被覆盖。</div>
+  <div class="footer"><a href="/studio">下一步：进入角色配音流水线 →</a><br>所有结果按项目目录保存到 <span data-default-output>服务器默认目录</span>；原始文件不会被覆盖。</div>
 </main>
 
 <script>
@@ -104,6 +109,14 @@
   const analyzeButton = document.getElementById('analyzeButton');
   const analyzeStatus = document.getElementById('analyzeStatus');
   const speakerList = document.getElementById('speakerList');
+  const outputDirInput = document.querySelector('input[name="output_dir"]');
+
+  fetch('/api/system/config', { cache: 'no-store' }).then(response => response.ok ? response.json() : null).then(config => {
+    const output = config && config.default_output;
+    if (!output) return;
+    if (outputDirInput && !outputDirInput.value) outputDirInput.value = output;
+    document.querySelectorAll('[data-default-output]').forEach(node => { node.textContent = output; });
+  }).catch(() => {});
 
   function esc(value) {
     return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

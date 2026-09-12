@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>无声视频时间线配音</title>
+  <link rel="icon" href="/brand-logo.png" type="image/png">
   <style>
     :root { color-scheme: dark; --bg:#0b111a; --panel:#151e2b; --line:#2b3b51; --text:#eff4fb; --muted:#9eabbc; --blue:#76aaff; --cyan:#55d4da; --green:#73d69b; --warn:#f4b65d; }
     * { box-sizing:border-box; }
@@ -52,12 +53,16 @@
     .notice { margin-top:16px; color:var(--muted); font-size:12px; }
     @media(max-width:820px) { .shell{padding:17px 14px 32px;} .topbar{display:block;} .nav{margin-top:12px;gap:11px;} .layout{grid-template-columns:1fr;} .field-grid{grid-template-columns:1fr;} label.wide{grid-column:auto;} }
   </style>
+  <link rel="stylesheet" href="/console.css?v=20260912">
 </head>
-<body>
+<body class="console-page">
 <main class="shell">
   <header class="topbar">
-    <a class="brand" href="/"><span class="mark">配</span><span>本地音视频工作台</span></a>
-    <nav class="nav"><a href="/">主页</a><a href="/assets">语音资产</a><a href="/studio">视频配音</a><a href="/timeline">时间线配音</a></nav>
+    <a class="brand" href="/">
+      <span class="brand-logo-wrap"><img class="brand-logo" src="/brand-logo.png" alt="野构 Studio"></span>
+      <span class="brand-copy"><strong>野构 Studio</strong><span>TIMELINE DUBBING</span></span>
+    </a>
+    <nav class="nav"><a href="/">主页</a><a class="active" href="/timeline">时间线配音</a><a href="/studio">角色配音</a><a href="/assets">语音资产</a><a href="/tts">独立试音</a></nav>
   </header>
 
   <section class="panel" style="margin-bottom:18px">
@@ -144,8 +149,8 @@
             <span class="help">环境很干净时可设为 0。</span>
           </label>
           <label class="wide">输出目录
-            <input name="output_dir" value="F:\\voice">
-            <span class="help">Windows 路径；例如 `F:\\voice`。原视频不会被覆盖。</span>
+            <input name="output_dir" value="" placeholder="使用服务器默认目录">
+            <span class="help">留空使用服务器配置；也可填写服务器可访问的 Windows 或 Linux 路径。原视频不会被覆盖。</span>
           </label>
           <label class="check"><input name="fit_to_slot" id="fit-to-slot" type="checkbox"><span>温和适配字幕时长（仅 0.8–1.25 倍）</span></label>
           <label class="check"><input name="adaptive_speed" id="adaptive-speed" type="checkbox"><span>自动微调语速（最多约 ±15%）</span></label>
@@ -178,6 +183,11 @@
 <script>
 (() => {
   const form = document.getElementById('timeline-form');
+  const outputDirInput = form.querySelector('input[name="output_dir"]');
+  fetch('/api/system/config', { cache: 'no-store' }).then(response => response.ok ? response.json() : null).then(config => {
+    const output = config && config.default_output;
+    if (outputDirInput && output && !outputDirInput.value) outputDirInput.value = output;
+  }).catch(() => {});
   const mode = document.getElementById('mode');
   const expressionPreset = document.getElementById('expression-preset');
   const promptInstruction = document.getElementById('prompt-instruction');

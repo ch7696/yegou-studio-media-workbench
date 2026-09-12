@@ -64,7 +64,7 @@ Docker 镜像名义大小约 **61.8GB**：
 ## 推荐迁移步骤
 
 1. 云端创建带 NVIDIA 驱动、Docker 和 CUDA 运行时的 GPU 实例。
-2. 通过 Git 迁移 `voice-asset-workbench`、CosyVoice 和 3D-Speaker 代码。
+2. 通过 Git 迁移野构 Studio 声像制片台、CosyVoice 和 3D-Speaker 代码。
 3. 模型放在独立数据盘的 `/data/models`，不要写进镜像层。
 4. 先部署 ASR 和 CosyVoice，确认配音链路后再部署视觉/OCR服务。
 5. 将 Windows 路径改成 Linux 路径，例如 `F:\\voice` 改为 `/data/voice`。

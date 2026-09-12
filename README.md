@@ -1,6 +1,6 @@
-# Voice Asset Workbench
+# 野构 Studio · 声像制片台
 
-本项目把语音处理整理成两个入口：先用“识别并提取语音资产”整理说话人音色，再用“按说话人替换视频配音”完成时间轴配音和导出，运行在当前 WSL Docker 环境中。
+野构 Studio 声像制片台把语音处理整理成两个入口：先用“识别并提取语音资产”整理说话人音色，再用“按说话人替换视频配音”完成时间轴配音和导出。项目使用 FastAPI、WSL Docker、Qwen3-ASR、Sortformer、Demucs 和 CosyVoice3。
 
 识别链路负责上传音频或视频、抽取完整音轨、可调清洁、Sortformer / 3D-Speaker 说话人识别、Qwen3-ASR-1.7B + ForcedAligner 时间戳识别，并把每个说话人保存为可读的资产目录。TTS 链路只读取已经生成的说话人资产，不会因为打开页面就重新分析源视频；重新配音工作台则按任务需要调用两条链路。
 
@@ -28,26 +28,26 @@ web/timeline.html     无声视频时间线配音页面
 scripts/run_webui.sh  Docker 启动脚本
 ```
 
-运行时数据在仓库外的 `/home/administrator/ragflow-managed/state/speaker-webui`，模型也不进入 Git。Windows 默认输出目录是 `F:\voice`，在容器中对应 `/mnt/f/voice`。
+运行时数据在仓库外的 `/home/administrator/ragflow-managed/state/speaker-webui`，模型也不进入 Git。输出目录由部署变量 `VOICE_DEFAULT_OUTPUT` 提供；当前本机默认值是容器内的 `/mnt/f/voice`，浏览器会显示为对应的 Windows 路径。迁移到云端时只需传入云端目录，例如 `VOICE_DEFAULT_OUTPUT=/data/voice`。
 
 ## 启动
 
 ```bash
-bash /home/administrator/voice-asset-workbench/scripts/run_webui.sh
+bash scripts/run_webui.sh
 curl http://127.0.0.1:7866/api/health
 ```
 
 需要根据 Dockerfile 重建镜像时执行：
 
 ```bash
-BUILD_IMAGE=1 bash /home/administrator/voice-asset-workbench/scripts/run_webui.sh
+BUILD_IMAGE=1 bash scripts/run_webui.sh
 ```
 
 主页：`http://127.0.0.1:7866/`。
 
 主页右上角的“释放显存”按钮会卸载 7866 工作台中已缓存的 CosyVoice3 / HDEMUCS，并通知独立的 18763 ASR 服务卸载 Qwen3-ASR 和 ForcedAligner；服务端口保持在线，下一次使用时模型会自动重新加载。正在生成或分离时按钮会返回忙碌提示，不会中断任务。
 
-语音资产流水线：`http://127.0.0.1:7866/assets`。操作顺序是：上传音频或视频，填写已知说话人数（不知道就保持 0），点击“开始识别并提取资产”，等待识别、清洁、切片和保存完成。结果按说话人显示，资产目录和清洁参考音频会写入 `F:\voice`。
+语音资产流水线：`http://127.0.0.1:7866/assets`。操作顺序是：上传音频或视频，填写已知说话人数（不知道就保持 0），点击“开始识别并提取资产”，等待识别、清洁、切片和保存完成。结果按说话人显示，资产目录和清洁参考音频会写入服务器配置的输出目录。
 
 音视频重新配音流水线：`http://127.0.0.1:7866/studio`。页面按从上到下的顺序组织：导入视频，分析声音并分离人声 / 背景，筛选说话人和台词片段，绑定参考音色并试听，最后替换目标说话人的全部台词并导出。分析会自动生成一条人声轨和一条背景 / 音效轨；导出时默认压低目标说话人的原声、保留其他人声和背景 / 音效。
 
@@ -58,14 +58,14 @@ BUILD_IMAGE=1 bash /home/administrator/voice-asset-workbench/scripts/run_webui.s
 ```bash
 ASR_MODEL_NAME=Qwen3-ASR-0.6B \
 ASR_MODEL_DIR=/home/administrator/models/Qwen3-ASR-0.6B \
-bash /home/administrator/voice-asset-workbench/scripts/run_webui.sh
+bash scripts/run_webui.sh
 ```
 
 直接 TTS 工作台地址：`http://127.0.0.1:7866/tts`。它接收音频或视频，先扫描指定范围内的完整音轨，使用轻量 VAD 找出清晰人声，拼接成约 8 秒的参考音频；长音频或疑似多人素材会调用当前说话人后端筛选单一说话人，并在结果中记录候选片段和质量提示。默认的“快速音色复刻”走官方 `inference_cross_lingual`，不需要参考台词；Zero-shot 会自动调用 Qwen3-ASR 提供参考台词，但生成前应确认文字与参考音频完全一致；Instruct2 只需要填写 `instruct_text`。
 
 直接 TTS 页面默认扫描 60 秒、生成约 8 秒参考音频。需要保留原始起点和片段时，可以关闭“自动筛选清晰语音”；这个兼容路径仍会把最多 30 秒的指定片段整理成单声道参考音频。生成结果会同时显示本次真正送入 CosyVoice 的参考音频，便于先判断音色素材是否干净。
 
-重新配音工作台会把结果写入 `F:\voice\<原文件名>__全片配音项目__<任务号>`，其中包含 `时间轴.json`、`说话人时间轴.md`、`音频/人声.wav`、`音频/背景声.wav`、参考音色、每句配音片段、`新配音人声.wav`、`配音混音.wav` 和可选的 `配音视频.mp4`。原始文件不会被覆盖。
+重新配音工作台会把结果写入服务器配置的输出目录下的 `<原文件名>__全片配音项目__<任务号>`，其中包含 `时间轴.json`、`说话人时间轴.md`、`音频/人声.wav`、`音频/背景声.wav`、参考音色、每句配音片段、`新配音人声.wav`、`配音混音.wav` 和可选的 `配音视频.mp4`。原始文件不会被覆盖。
 
 无声视频时间线入口：`http://127.0.0.1:7866/timeline`。它接收视频、SRT/VTT/JSON 时间线和一段参考音色，按字幕起止时间逐段调用 CosyVoice3，输出 `时间线配音.wav`、`时间线配音视频.mp4`、`时间线.json` 和逐段音频。视觉字幕项目导出的 `字幕提取时间轴.json` 可以直接导入；其中 `segments[].start_sec`、`end_sec`、`text` 会被保留，视觉模型的估计精度提示也会写入结果。默认保留自然语速；只有主动勾选温和适配且自然时长接近字幕槽（0.80–1.25 倍）时才做变速，严重不匹配的片段会保留原声并顺延后续片段，避免变成快进、慢放或叠音。这个入口当前使用一段参考音色生成整条时间线，后续再增加按 `speaker_id` 绑定多套音色。
 
@@ -80,13 +80,13 @@ bash /home/administrator/voice-asset-workbench/scripts/run_webui.sh
 V3 镜像默认名为 `ragflow-cosyvoice-speaker:0.0.4`，重建命令仍然是：
 
 ```bash
-BUILD_IMAGE=1 bash /home/administrator/voice-asset-workbench/scripts/run_webui.sh
+BUILD_IMAGE=1 bash scripts/run_webui.sh
 ```
 
 如果只想快速启动已经构建好的镜像，直接运行：
 
 ```bash
-bash /home/administrator/voice-asset-workbench/scripts/run_webui.sh
+bash scripts/run_webui.sh
 ```
 
 ## TTS 参数依据
@@ -146,3 +146,7 @@ CosyVoice2 示例中的 `add_zero_shot_spk` 缓存调用没有套用到 CosyVoic
 - `POST /api/system/release-memory`：释放模型显存，保持 7866 WebUI 和 18763 ASR 服务在线。
 
 每个资产目录包含清洁参考音色、`资产卡片.md`、`说话人分析.json` 或试音结果；原始上传文件和任务状态保留在外部 state 目录，不会被 Git 跟踪。
+
+## 项目仓库与许可
+
+GitHub 主仓地址由部署变量 `GITHUB_REPOSITORY_URL` 注入 WebUI，只有配置真实仓库地址时页面才显示入口。项目采用 Apache-2.0 许可，详见 [LICENSE](LICENSE)。

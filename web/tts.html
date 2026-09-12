@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CosyVoice3 直接 TTS 工作台</title>
+  <link rel="icon" href="/brand-logo.png" type="image/png">
   <style>
     :root { color-scheme: dark; --bg:#10131a; --panel:#191e29; --line:#303847; --text:#eef2f7; --muted:#9da8b8; --accent:#72a7ff; --ok:#73d69b; --warn:#ffcc73; }
     * { box-sizing: border-box; }
@@ -38,9 +39,17 @@
     .result { border-top:1px solid var(--line); margin-top:18px; padding-top:16px; }
     @media (max-width:760px) { body{padding:14px;} .grid{grid-template-columns:1fr;} label.wide{grid-column:auto;} label.check{padding-top:0;} }
   </style>
+  <link rel="stylesheet" href="/console.css?v=20260912">
 </head>
-<body>
+<body class="console-page">
 <main>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-logo-wrap"><img class="brand-logo" src="/brand-logo.png" alt="野构 Studio"></span>
+      <span class="brand-copy"><strong>野构 Studio</strong><span>DIRECT TTS</span></span>
+    </a>
+    <nav class="nav"><a href="/">主页</a><a href="/timeline">时间线配音</a><a href="/studio">角色配音</a><a href="/assets">语音资产</a><a class="active" href="/tts">独立试音</a></nav>
+  </header>
   <h1>CosyVoice3 直接 TTS 工作台</h1>
   <p>上传音频或视频后，系统会自动寻找清晰的单人语音，整理成约 8 秒参考音频，再生成目标文本。复杂设置收在下面，默认流程可以直接使用。</p>
 
@@ -49,7 +58,7 @@
     <form id="ttsForm">
       <div class="grid">
         <label class="wide">参考音频或视频<input id="reference-media" type="file" accept="audio/*,video/*" required></label>
-        <label>输出目录<input id="output-dir" value="F:\\voice"></label>
+        <label>输出目录<input id="output-dir" value="" placeholder="使用服务器默认目录"></label>
         <label>从第几秒开始扫描<input id="reference-start" type="number" min="0" step="0.1" value="0"><span class="help">默认从文件开头寻找人声</span></label>
         <label>最多扫描时长（秒）<input id="reference-seconds" type="number" min="1" max="300" step="1" value="60"><span class="help">长视频可适当增加</span></label>
         <label>参考音频目标时长（秒）<input id="reference-target-seconds" type="number" min="1" max="30" step="0.5" value="8"><span class="help">会拼接多个清晰短片段</span></label>
@@ -130,7 +139,13 @@
   const referenceSource = document.getElementById('reference-source');
   const status = document.getElementById('status');
   const resultPanel = document.getElementById('result-panel');
+  const outputDirInput = document.getElementById('output-dir');
   let preparedReferenceId = '';
+
+  fetch('/api/system/config', { cache: 'no-store' }).then(response => response.ok ? response.json() : null).then(config => {
+    const output = config && config.default_output;
+    if (output && outputDirInput && !outputDirInput.value) outputDirInput.value = output;
+  }).catch(() => {});
 
   const expressionInstructions = {
     natural: 'You are a helpful assistant. 请用自然、像真人交流一样的语气说话，保持正常语速和自然的情绪起伏。',

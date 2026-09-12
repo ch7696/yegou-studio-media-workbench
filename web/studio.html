@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>按说话人替换视频配音</title>
+  <link rel="icon" href="/brand-logo.png" type="image/png">
   <style>
     :root {
       color-scheme: dark;
@@ -78,12 +79,16 @@
     @media (max-width:900px) { .hero { display:block; } .steps { min-width:0; margin-top:18px; } }
     @media (max-width:680px) { .shell { padding:15px 12px 30px; } h1 { font-size:24px; } .nav { gap:9px; } .meta-grid,.form-grid,.range-grid { grid-template-columns:1fr; } .field.wide { grid-column:auto; } .lane { grid-template-columns:1fr; } .filter-row { grid-template-columns:1fr; } .segment { grid-template-columns:72px 1fr; } .segment button { grid-column:2; justify-self:start; } }
   </style>
+  <link rel="stylesheet" href="/console.css?v=20260912">
 </head>
-<body>
+<body class="console-page">
 <main class="shell">
   <header class="topbar">
-    <a class="brand" href="/"><span class="brand-mark">声</span><span>本地音视频工作台</span></a>
-    <nav class="nav"><a href="/">主页</a><a href="/assets">语音资产</a><a href="/studio">视频配音</a><a href="/timeline">时间线配音</a></nav>
+    <a class="brand" href="/">
+      <span class="brand-logo-wrap"><img class="brand-logo" src="/brand-logo.png" alt="野构 Studio"></span>
+      <span class="brand-copy"><strong>野构 Studio</strong><span>CHARACTER DUBBING</span></span>
+    </a>
+    <nav class="nav"><a href="/">主页</a><a href="/timeline">时间线配音</a><a class="active" href="/studio">角色配音</a><a href="/assets">语音资产</a><a href="/tts">独立试音</a></nav>
   </header>
 
   <section class="hero">
@@ -91,7 +96,7 @@
       <div class="eyebrow">DUBBING PIPELINE</div>
       <h1>按说话人替换视频配音</h1>
       <p>从上到下完成：导入视频 → 分析声音 → 筛选说话人 → 绑定参考音色 → 试听 → 批量替换并导出。</p>
-      <div class="badge-row" style="margin-top:12px"><span class="badge ok">保留背景与音效</span><span class="badge ok">原视频不覆盖</span><span class="badge warn">所有结果保存到 F:\voice</span></div>
+      <div class="badge-row" style="margin-top:12px"><span class="badge ok">保留背景与音效</span><span class="badge ok">原视频不覆盖</span><span class="badge warn">结果保存到 <span data-default-output>服务器默认目录</span></span></div>
     </div>
     <div class="steps" aria-label="配音流程">
       <div class="step active">1<br>导入</div><div class="step">2<br>分析声音</div><div class="step">3<br>筛选片段</div><div class="step">4<br>绑定与试听</div><div class="step">5<br>导出</div>
@@ -103,7 +108,7 @@
       <div class="card-head"><div><div class="eyebrow">01 / INPUT</div><h2>导入视频或音频</h2><p>先选择要处理的原始媒体。后面的识别、时间轴和最终导出都围绕这一份文件完成。</p></div><span class="chip ok">本地文件</span></div>
       <div id="drop" class="drop"><strong>把视频或音频拖到这里</strong><span class="help">支持常见视频、音频格式；原始文件不会被覆盖</span><input id="media-file" type="file" accept="audio/*,video/*"></div>
       <div class="media-wrap"><div id="media-empty" class="media-empty">选择文件后，这里会出现视频预览</div><video id="video-preview" controls hidden></video><audio id="audio-preview" controls hidden></audio></div>
-      <div class="meta-grid"><div class="meta-box"><span>文件</span><strong id="file-name">未选择</strong></div><div class="meta-box"><span>时长</span><strong id="file-duration">--:--</strong></div><div class="meta-box"><span>统一输出</span><strong>F:\voice</strong></div></div>
+      <div class="meta-grid"><div class="meta-box"><span>文件</span><strong id="file-name">未选择</strong></div><div class="meta-box"><span>时长</span><strong id="file-duration">--:--</strong></div><div class="meta-box"><span>统一输出</span><strong data-default-output>服务器默认目录</strong></div></div>
     </section>
 
     <section class="card">
@@ -173,7 +178,7 @@
     </section>
   </section>
 
-  <div class="footer"><a href="/assets">先去整理语音资产</a> · <a href="/">返回主页</a><br>所有结果按项目目录保存到 F:\voice；原始文件不会被覆盖。</div>
+  <div class="footer"><a href="/assets">先去整理语音资产</a> · <a href="/">返回主页</a><br>所有结果按项目目录保存到 <span data-default-output>服务器默认目录</span>；原始文件不会被覆盖。</div>
 </main>
 <script src="/studio.js"></script>
 </body>

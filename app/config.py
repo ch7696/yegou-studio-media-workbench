@@ -15,6 +15,10 @@ DIRECT_TTS_WORK = DIRECT_TTS_STATE / "work"
 DIRECT_TTS_MANIFESTS = DIRECT_TTS_STATE / "manifests"
 
 DEFAULT_OUTPUT = Path(os.getenv("VOICE_DEFAULT_OUTPUT", "/mnt/f/voice"))
+GITHUB_REPOSITORY_URL = (
+    os.getenv("GITHUB_REPOSITORY_URL")
+    or ""
+).strip()
 MODEL_DIR = os.getenv("COSYVOICE_MODEL_DIR", "/models/Fun-CosyVoice3-0.5B")
 ASR_DIR = os.getenv("QWEN_ASR_MODEL_DIR", "/models/Qwen3-ASR-1.7B")
 FORCED_ALIGNER_DIR = os.getenv("QWEN_FORCED_ALIGNER_DIR", "/models/Qwen3-ForcedAligner-0.6B")
