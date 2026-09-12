@@ -19,7 +19,7 @@ CONTAINER="ragflow-model-speaker-webui"
 PORT="${SPEAKER_WEBUI_PORT:-7866}"
 ASR_API_PORT="${ASR_API_PORT:-18763}"
 VOICE_DEFAULT_OUTPUT="${VOICE_DEFAULT_OUTPUT:-/mnt/f/voice}"
-GITHUB_REPOSITORY_URL="${GITHUB_REPOSITORY_URL:-}"
+GITHUB_REPOSITORY_URL="${GITHUB_REPOSITORY_URL:-https://github.com/ch7696/yegou-studio-media-workbench}"
 DIARIZATION_BACKEND="${DIARIZATION_BACKEND:-sortformer}"
 SPEAKER_ASSIGNMENT_STRATEGY="${SPEAKER_ASSIGNMENT_STRATEGY:-posterior}"
 # Optional token is needed only by the official 3D-Speaker overlap module.

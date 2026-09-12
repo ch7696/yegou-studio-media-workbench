@@ -149,4 +149,4 @@ CosyVoice2 示例中的 `add_zero_shot_spk` 缓存调用没有套用到 CosyVoic
 
 ## 项目仓库与许可
 
-GitHub 主仓地址由部署变量 `GITHUB_REPOSITORY_URL` 注入 WebUI，只有配置真实仓库地址时页面才显示入口。项目采用 Apache-2.0 许可，详见 [LICENSE](LICENSE)。
+GitHub 主仓：[ch7696/yegou-studio-media-workbench](https://github.com/ch7696/yegou-studio-media-workbench)。部署时可以用 `GITHUB_REPOSITORY_URL` 覆盖页面入口地址。项目采用 Apache-2.0 许可，详见 [LICENSE](LICENSE)。

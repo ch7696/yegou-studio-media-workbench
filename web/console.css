@@ -319,52 +319,16 @@ body.console-page .card-icon { border-radius: 5px; }
 body.console-page .card-open { color: var(--orange-dark) !important; }
 body.console-page .secondary .card-open { color: var(--ink) !important; }
 
-/* The landing page is an entry screen rather than a task editor. Keep its
-   navigation in the header and leave the four real entry points full width. */
-body.console-page.home-page .nav {
-  position: static;
-  width: auto;
-  display: flex;
-  align-items: center;
-  flex-direction: row;
-  gap: 18px;
-  padding: 0;
-  overflow: visible;
-  border: 0;
-  background: transparent;
-}
-body.console-page.home-page .nav::before { display: none; }
-body.console-page.home-page .nav a {
-  display: inline;
-  min-height: auto;
-  gap: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--muted) !important;
-  font-weight: 650;
-}
-body.console-page.home-page .nav a::before { display: none; }
-body.console-page.home-page .nav a:hover,
-body.console-page.home-page .nav a.active {
-  border: 0;
-  background: transparent;
-  color: var(--ink) !important;
-  text-decoration: underline;
-  text-decoration-color: var(--orange);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 7px;
-}
+/* The landing page uses the same left workflow rail as every task page. */
 body.console-page.home-page > .layout {
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: 34px 32px 48px;
+  max-width: none;
+  margin: 0;
+  padding: 34px 32px 48px 264px;
 }
 body.console-page.home-page > .footer {
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: 0 32px 28px;
+  max-width: none;
+  margin: 0;
+  padding: 0 32px 28px 264px;
 }
 body.console-page.home-page a.work-card.primary,
 body.console-page.home-page a.work-card.primary:hover {
