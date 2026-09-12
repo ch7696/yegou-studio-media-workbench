@@ -11,11 +11,18 @@ ASR_CONTAINER_DIR="/models/${ASR_MODEL_NAME}"
 ALIGNER_DIR="/home/administrator/models/Qwen3-ForcedAligner-0.6B"
 DIAR_DIR="/home/administrator/3D-Speaker"
 COSY_DIR="/home/administrator/cosyvoice/CosyVoice"
+SORTFORMER_MODEL_DIR="${SORTFORMER_MODEL_DIR:-/home/administrator/models/diar_streaming_sortformer_4spk-v2.1}"
+SORTFORMER_CONTAINER_MODEL="/models/diar_streaming_sortformer_4spk-v2.1/diar_streaming_sortformer_4spk-v2.1.nemo"
 CACHE_DIR="$MANAGED_DIR/state/cosyvoice-cache"
-IMAGE="ragflow-cosyvoice-speaker:0.0.2"
+IMAGE="ragflow-cosyvoice-speaker:0.0.4"
 CONTAINER="ragflow-model-speaker-webui"
 PORT="${SPEAKER_WEBUI_PORT:-7866}"
 ASR_API_PORT="${ASR_API_PORT:-18763}"
+DIARIZATION_BACKEND="${DIARIZATION_BACKEND:-sortformer}"
+SPEAKER_ASSIGNMENT_STRATEGY="${SPEAKER_ASSIGNMENT_STRATEGY:-posterior}"
+# Optional token is needed only by the official 3D-Speaker overlap module.
+# Sortformer itself reads its local Hugging Face cache.
+HF_ACCESS_TOKEN="${HF_ACCESS_TOKEN:-${HUGGINGFACE_HUB_TOKEN:-}}"
 
 mkdir -p "$STATE_DIR" "$CACHE_DIR"
 
@@ -37,6 +44,11 @@ exec docker run -d \
   -w /app \
   -e TRANSFORMERS_OFFLINE=1 \
   -e HF_HUB_OFFLINE=1 \
+  -e DIARIZATION_BACKEND="$DIARIZATION_BACKEND" \
+  -e SPEAKER_ASSIGNMENT_STRATEGY="$SPEAKER_ASSIGNMENT_STRATEGY" \
+  -e HF_ACCESS_TOKEN="$HF_ACCESS_TOKEN" \
+  -e HF_HOME=/root/.cache/huggingface \
+  -e HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub \
   -e PYTHONUNBUFFERED=1 \
   -e ASR_SERVICE_URL="http://host.docker.internal:${ASR_API_PORT}" \
   -e VOICE_STATE_DIR=/state \
@@ -44,6 +56,7 @@ exec docker run -d \
   -e COSYVOICE_MODEL_DIR=/models/Fun-CosyVoice3-0.5B \
   -e QWEN_ASR_MODEL_DIR="$ASR_CONTAINER_DIR" \
   -e QWEN_FORCED_ALIGNER_DIR=/models/Qwen3-ForcedAligner-0.6B \
+  -e SORTFORMER_MODEL="$SORTFORMER_CONTAINER_MODEL" \
   -e THREE_D_SPEAKER_REPO=/opt/3D-Speaker \
   -e COSYVOICE_REPO=/opt/CosyVoice \
   -v "$PROJECT_DIR:/app:ro" \
@@ -53,6 +66,7 @@ exec docker run -d \
   -v "$ASR_DIR:$ASR_CONTAINER_DIR:ro" \
   -v "$ALIGNER_DIR:/models/Qwen3-ForcedAligner-0.6B:ro" \
   -v "$DIAR_DIR:/opt/3D-Speaker:ro" \
+  -v "$SORTFORMER_MODEL_DIR:/models/diar_streaming_sortformer_4spk-v2.1:ro" \
   -v "$COSY_DIR:/opt/CosyVoice:ro" \
   -v /mnt:/mnt \
   --entrypoint python3 "$IMAGE" \

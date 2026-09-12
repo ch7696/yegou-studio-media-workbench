@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import os
 import threading
 import uuid
@@ -69,6 +70,39 @@ def health() -> dict[str, Any]:
         "timestamps_supported": TIMESTAMPS_SUPPORTED,
         "aligner_error": ALIGNER_ERROR,
     }
+
+
+@app.post("/release-memory")
+def release_memory() -> dict[str, Any]:
+    """Unload the persistent ASR/ForcedAligner model but keep port 18763 up."""
+
+    global MODEL, TIMESTAMPS_SUPPORTED
+    if not MODEL_LOCK.acquire(False):
+        raise HTTPException(status_code=409, detail="当前 ASR 任务正在执行，完成后再释放显存")
+    try:
+        released: list[str] = []
+        if MODEL is not None:
+            model = MODEL
+            MODEL = None
+            TIMESTAMPS_SUPPORTED = False
+            del model
+            gc.collect()
+            released.append(MODEL_NAME)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                try:
+                    torch.cuda.ipc_collect()
+                except Exception:
+                    pass
+        return {
+            "ok": True,
+            "status": "released",
+            "message": "ASR 模型显存已释放，ASR 服务保持在线",
+            "released": released,
+            "warnings": [],
+        }
+    finally:
+        MODEL_LOCK.release()
 
 
 @app.post("/transcribe")

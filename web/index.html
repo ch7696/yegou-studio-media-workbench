@@ -21,10 +21,16 @@
     a { color: inherit; text-decoration: none; }
     .shell { max-width: 1180px; margin: 0 auto; padding: 26px 28px 46px; }
     .topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 62px; }
+    .topbar-right { display: flex; align-items: center; justify-content: flex-end; gap: 18px; min-width: 0; }
     .brand { display: flex; align-items: center; gap: 11px; font-size: 17px; font-weight: 760; }
     .brand-mark { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; background: linear-gradient(135deg, #5c9bff, #52d3d5); color: #091422; font-weight: 900; }
     .nav { display: flex; gap: 16px; color: var(--muted); font-size: 13px; }
     .nav a:first-child { color: var(--text); }
+    .console-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
+    .memory-button { min-height: 34px; padding: 0 12px; border: 1px solid #3e6590; border-radius: 8px; background: #172b43; color: #dceaff; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .memory-button:hover { border-color: #6da9ef; background: #1d3b5d; }
+    .memory-button:disabled { cursor: wait; opacity: .65; }
+    .memory-status { max-width: 260px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
     .hero { max-width: 790px; margin: 0 auto 38px; text-align: center; }
     .eyebrow { color: var(--cyan); font-size: 11px; font-weight: 760; letter-spacing: .1em; text-transform: uppercase; }
     h1 { margin: 8px 0 10px; font-size: clamp(28px, 4vw, 42px); letter-spacing: -.035em; }
@@ -56,6 +62,7 @@
     @media (max-width: 760px) {
       .shell { padding: 18px 14px 32px; }
       .topbar { margin-bottom: 42px; }
+      .topbar-right { flex-wrap: wrap; gap: 10px; }
       .nav { gap: 9px; }
       .entry-grid, .info { grid-template-columns: 1fr; }
       .entry { min-height: 0; }
@@ -67,7 +74,13 @@
 <main class="shell">
   <header class="topbar">
     <a class="brand" href="/"><span class="brand-mark">声</span><span>本地音视频工作台</span></a>
-    <nav class="nav"><a href="/">主页</a><a href="/assets">语音资产</a><a href="/studio">视频配音</a></nav>
+    <div class="topbar-right">
+      <nav class="nav"><a href="/">主页</a><a href="/assets">语音资产</a><a href="/studio">视频配音</a><a href="/timeline">时间线配音</a></nav>
+      <div class="console-actions" aria-label="全局控制台">
+        <button id="release-vram" class="memory-button" type="button" title="释放 7866 工作台和独立 ASR 服务的模型显存，服务保持在线">释放显存</button>
+        <span id="memory-status" class="memory-status" role="status">状态读取中</span>
+      </div>
+    </div>
   </header>
 
   <section class="hero">
@@ -103,7 +116,7 @@
         <div class="flow-row" data-step="2">分析音轨 <span>人声 / 背景两路分离</span></div>
         <div class="flow-row" data-step="3">筛选说话人 <span>查看完整台词和时间戳</span></div>
         <div class="flow-row" data-step="4">绑定并试听 <span>参考音色 + 新台词</span></div>
-        <div class="flow-row" data-step="5">批量替换并导出 <span>保留背景与音效</span></div>
+        <div class="flow-row" data-step="5">批量替换并导出 <span>保留背景与音效；无声视频可导入字幕时间线</span></div>
       </div>
       <div class="entry-footer"><span class="entry-note">适合整段视频的目标人物替换</span><span class="entry-link">进入配音流水线&nbsp;→</span></div>
     </a>
@@ -114,8 +127,63 @@
     <div class="info-card"><strong>模型分工</strong><span>识别使用 Qwen3-ASR + 说话人模型，配音使用 CosyVoice3。</span></div>
     <div class="info-card"><strong>高级工具</strong><span>需要直接拿参考音频试音时，可使用下方独立工具。</span></div>
   </section>
-  <div class="tools"><a href="/tts">打开独立 TTS 试音工具</a></div>
+  <div class="tools"><a href="/timeline">打开无声视频时间线配音</a>　·　<a href="/tts">打开独立 TTS 试音工具</a></div>
   <div class="footer">本地运行 · 任务数据和模型保存在 WSL / Windows 本机</div>
 </main>
+<script>
+(() => {
+  const button = document.getElementById("release-vram");
+  const status = document.getElementById("memory-status");
+  if (!button || !status) return;
+
+  const formatMemory = (payload) => {
+    const cuda = payload && payload.cuda;
+    if (!cuda || !cuda.available || typeof cuda.reserved_mb !== "number") return "";
+    return `缓存 ${cuda.reserved_mb} MB`;
+  };
+
+  const render = (payload, message = "") => {
+    const parts = [];
+    if (payload && payload.webui_online) parts.push("WebUI 在线");
+    if (payload && payload.tts_loaded) parts.push("TTS 已加载");
+    if (payload && payload.separation_loaded) parts.push("分离模型已加载");
+    const memory = formatMemory(payload);
+    if (memory) parts.push(memory);
+    status.textContent = message || (parts.length ? parts.join(" · ") : "WebUI 在线");
+    status.title = status.textContent;
+  };
+
+  const refresh = async () => {
+    try {
+      const response = await fetch("/api/system/memory", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "状态读取失败");
+      render(payload);
+    } catch (error) {
+      status.textContent = `状态读取失败：${error.message || error}`;
+    }
+  };
+
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "释放中…";
+    status.textContent = "正在释放模型显存，WebUI 保持在线…";
+    try {
+      const response = await fetch("/api/system/release-memory", { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "释放失败");
+      render(payload, payload.message || "显存已释放，WebUI 在线");
+    } catch (error) {
+      status.textContent = `释放失败：${error.message || error}`;
+      status.title = status.textContent;
+    } finally {
+      button.disabled = false;
+      button.textContent = "释放显存";
+    }
+  });
+
+  refresh();
+})();
+</script>
 </body>
 </html>

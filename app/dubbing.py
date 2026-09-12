@@ -18,9 +18,16 @@ import soundfile as sf
 from . import tts
 from .asr import transcribe, transcribe_detailed
 from .audio import extract_clean, fit_audio
-from .config import DUBBING_JOBS, DUBBING_WORK, RATE
+from .config import (
+    DUBBING_JOBS,
+    DUBBING_WORK,
+    RATE,
+    SPEAKER_AMBIGUITY_MARGIN,
+    SPEAKER_ASSIGNMENT_STRATEGY,
+    SPEAKER_MIN_CONFIDENCE,
+)
 from .direct_tts import extract_reference
-from .diarization import diarize
+from .diarization import run_diarization
 from .separation import separate_audio, unload_separation
 from .utils import digest, duration, probe, safe_name, save_json, to_windows_path, to_wsl_path
 
@@ -246,6 +253,277 @@ def _build_utterances(
     return utterances
 
 
+def _normalise_diarization_v3(raw: Any) -> list[dict[str, Any]]:
+    """Normalize the compatibility intervals emitted by any backend.
+
+    The full activity frames remain in ``diarization.activity``.  These
+    intervals are retained for the existing mixer and for the asset pipeline.
+    """
+
+    if isinstance(raw, dict):
+        raw = raw.get("segments", [])
+    output: list[dict[str, Any]] = []
+    for item in raw or []:
+        if isinstance(item, dict):
+            start = item.get("start_sec", item.get("start", 0.0))
+            end = item.get("end_sec", item.get("end", start))
+            label = item.get("cluster_label", item.get("label", item.get("speaker", 0)))
+            activity_speaker_id = item.get("speaker_id")
+        elif isinstance(item, (list, tuple)) and len(item) >= 3:
+            start, end, label = item[0], item[1], item[2]
+            activity_speaker_id = None
+        else:
+            continue
+        try:
+            start_value = max(0.0, float(start))
+            end_value = max(start_value, float(end))
+            label_value = int(label)
+        except (TypeError, ValueError):
+            continue
+        if end_value - start_value < 0.02:
+            continue
+        output.append(
+            {
+                "start_sec": round(start_value, 6),
+                "end_sec": round(end_value, 6),
+                "cluster_label": label_value,
+                "activity_speaker_id": str(activity_speaker_id or ""),
+                "confidence": round(float(item.get("confidence", 0.0) or 0.0), 6) if isinstance(item, dict) else 0.0,
+                "overlap": bool(item.get("overlap", False)) if isinstance(item, dict) else False,
+            }
+        )
+    return sorted(output, key=lambda item: (item["start_sec"], item["end_sec"], item["cluster_label"]))
+
+
+def _posterior_token_assignment(
+    token: dict[str, Any],
+    activity_result: dict[str, Any],
+    activity_speaker_map: dict[str, str],
+) -> dict[str, Any]:
+    raw_start = max(0.0, float(token.get("start_sec", 0.0) or 0.0))
+    raw_end = max(raw_start, float(token.get("end_sec", raw_start) or raw_start))
+    start = raw_start
+    end = max(start + 0.08, raw_end)
+    duration_sec = max(0.08, end - start)
+    weighted: dict[str, float] = {}
+    covered = 0.0
+    for frame in activity_result.get("frames", []) or []:
+        frame_start = float(frame.get("start_sec", 0.0) or 0.0)
+        frame_end = float(frame.get("end_sec", frame_start) or frame_start)
+        overlap = _interval_overlap(start, end, frame_start, frame_end)
+        if overlap <= 0:
+            continue
+        covered += overlap
+        for speaker, score in (frame.get("scores") or {}).items():
+            weighted[str(speaker)] = weighted.get(str(speaker), 0.0) + float(score or 0.0) * overlap
+
+    if covered <= 0 or not weighted:
+        return {
+            "text": str(token.get("text", "")),
+            "start_sec": round(start, 3),
+            "end_sec": round(end, 3),
+            "speaker_id": "unknown",
+            "speaker_confidence": 0.0,
+            "alignment_confidence": 0.0,
+            "alignment_coverage": 0.0,
+            "speaker_scores": {},
+            "active_speakers": [],
+            "overlap": False,
+            "needs_review": True,
+        }
+
+    scores = {speaker: value / covered for speaker, value in weighted.items()}
+    ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    active_threshold = float(activity_result.get("overlap_threshold", 0.5) or 0.5)
+    active = [speaker for speaker, score in ordered if score >= active_threshold]
+    overlap = len(active) >= 2
+    top_speaker, top_score = ordered[0]
+    second_score = ordered[1][1] if len(ordered) > 1 else 0.0
+    ambiguous = (
+        top_score < SPEAKER_MIN_CONFIDENCE
+        or (len(ordered) > 1 and top_score - second_score < SPEAKER_AMBIGUITY_MARGIN)
+    )
+    primary = None if overlap or ambiguous else activity_speaker_map.get(top_speaker)
+    output_scores = {
+        activity_speaker_map.get(speaker, speaker): round(float(score), 4)
+        for speaker, score in ordered
+        if speaker in activity_speaker_map
+    }
+    output_active = [activity_speaker_map[speaker] for speaker in active if speaker in activity_speaker_map]
+    return {
+        "text": str(token.get("text", "")),
+        "start_sec": round(start, 3),
+        "end_sec": round(end, 3),
+        # Unknown is intentional: a token in overlap or an ambiguous
+        # posterior must reach manual review instead of being misattributed.
+        "speaker_id": primary or "unknown",
+        "speaker_confidence": round(float(top_score), 3),
+        "alignment_confidence": round(float(top_score) * min(1.0, covered / duration_sec), 3),
+        "alignment_coverage": round(min(1.0, covered / duration_sec), 3),
+        "speaker_scores": output_scores,
+        "active_speakers": output_active,
+        "overlap": overlap,
+        "needs_review": bool(overlap or ambiguous or primary is None),
+    }
+
+
+def _legacy_token_assignment_v3(
+    token: dict[str, Any],
+    diarization: list[dict[str, Any]],
+    label_to_speaker: dict[int, str],
+) -> dict[str, Any]:
+    """The old interval assignment, kept behind the explicit legacy switch."""
+
+    raw_start = max(0.0, float(token.get("start_sec", 0.0) or 0.0))
+    raw_end = max(raw_start, float(token.get("end_sec", raw_start) or raw_start))
+    if raw_end - raw_start > MAX_ALIGNMENT_SPAN:
+        start = max(raw_start, raw_end - ALIGNMENT_TAIL_SECONDS)
+    else:
+        start = raw_start
+    end = max(start + 0.08, raw_end)
+    token_duration = max(0.08, end - start)
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for segment in diarization:
+        overlap = _interval_overlap(start, end, segment["start_sec"], segment["end_sec"])
+        if overlap > 0:
+            candidates.append((overlap, segment))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    if not candidates:
+        return {
+            "text": str(token.get("text", "")),
+            "start_sec": round(start, 3),
+            "end_sec": round(end, 3),
+            "speaker_id": "unknown",
+            "speaker_confidence": 0.0,
+            "alignment_confidence": 0.0,
+            "alignment_coverage": 0.0,
+            "speaker_scores": {},
+            "active_speakers": [],
+            "overlap": False,
+            "needs_review": True,
+        }
+    overlap, primary = candidates[0]
+    speaker_id = label_to_speaker.get(int(primary["cluster_label"]), "unknown")
+    confidence = min(1.0, overlap / token_duration)
+    active = [label_to_speaker.get(int(item[1]["cluster_label"]), "unknown") for item in candidates]
+    return {
+        "text": str(token.get("text", "")),
+        "start_sec": round(start, 3),
+        "end_sec": round(end, 3),
+        "speaker_id": speaker_id,
+        "speaker_confidence": round(confidence, 3),
+        "alignment_confidence": round(confidence, 3),
+        "alignment_coverage": round(confidence, 3),
+        "speaker_scores": {speaker_id: round(confidence, 4)},
+        "active_speakers": sorted(set(active)),
+        "overlap": len(set(active)) > 1,
+        "needs_review": len(set(active)) > 1 or confidence < SPEAKER_MIN_CONFIDENCE,
+    }
+
+
+def _build_utterances_v3(
+    tokens: list[dict[str, Any]],
+    diarization: list[dict[str, Any]],
+    label_to_speaker: dict[int, str],
+    *,
+    activity_result: dict[str, Any] | None,
+    activity_speaker_map: dict[str, str],
+    strategy: str,
+) -> list[dict[str, Any]]:
+    strategy = "legacy" if str(strategy).lower() == "legacy" else "posterior"
+    assigned = []
+    for token in tokens:
+        if not str(token.get("text", "")).strip():
+            continue
+        if strategy == "posterior" and activity_result and activity_result.get("frames"):
+            assigned.append(_posterior_token_assignment(token, activity_result, activity_speaker_map))
+        else:
+            assigned.append(_legacy_token_assignment_v3(token, diarization, label_to_speaker))
+
+    utterances: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    def flush() -> None:
+        nonlocal current
+        if current is None:
+            return
+        text = str(current.pop("_text", "")).strip()
+        if not text:
+            current = None
+            return
+        current["text"] = text
+        current["dubbing_text"] = text
+        current["original_duration_sec"] = round(current["end_sec"] - current["start_sec"], 3)
+        count = max(1, int(current.pop("_confidence_count", 0)))
+        current["speaker_confidence"] = round(float(current.pop("_confidence_sum", 0.0)) / count, 3)
+        score_sum = current.pop("_score_sum", {})
+        current["speaker_scores"] = {
+            key: round(float(value) / count, 4) for key, value in score_sum.items()
+        }
+        current["active_speakers"] = sorted(current.pop("_active_set", set()))
+        current["needs_review"] = bool(
+            current.get("needs_review")
+            or current.get("overlap")
+            or current.get("speaker_id") == "unknown"
+            or current["speaker_confidence"] < SPEAKER_MIN_CONFIDENCE
+        )
+        current["status"] = "需复核" if current["needs_review"] else "待配音"
+        current["segment_id"] = f"seg_{len(utterances) + 1:04d}"
+        utterances.append(current)
+        current = None
+
+    for item in assigned:
+        text = item["text"].strip()
+        if not text:
+            continue
+        if current is not None:
+            gap = item["start_sec"] - current["end_sec"]
+            speaker_changed = item["speaker_id"] != current["speaker_id"]
+            activity_changed = set(item.get("active_speakers") or []) != set(current.get("_active_set") or set())
+            sentence_done = str(current.get("_text", ""))[-1:] in PUNCTUATION and gap > 0.12
+            too_long = item["start_sec"] - current["start_sec"] >= 15.0
+            if strategy == "posterior":
+                # A posterior transition is enough to split a turn. The old
+                # 0.35s silence rule is deliberately used only by legacy mode.
+                speaker_boundary = (speaker_changed or activity_changed) and (
+                    item["speaker_id"] != "unknown"
+                    or current["speaker_id"] != "unknown"
+                    or item.get("overlap")
+                    or current.get("overlap")
+                )
+            else:
+                speaker_boundary = speaker_changed and (
+                    gap > 0.35 or str(current.get("_text", ""))[-1:] in PUNCTUATION
+                )
+            if speaker_boundary or gap > 0.85 or sentence_done or too_long:
+                flush()
+        if current is None:
+            current = {
+                "start_sec": item["start_sec"],
+                "end_sec": item["end_sec"],
+                "speaker_id": item["speaker_id"],
+                "overlap": bool(item.get("overlap")),
+                "needs_review": bool(item.get("needs_review")),
+                "_active_set": set(item.get("active_speakers") or []),
+                "_score_sum": dict(item.get("speaker_scores") or {}),
+                "_text": text,
+                "_confidence_sum": float(item.get("speaker_confidence", 0.0)),
+                "_confidence_count": 1,
+            }
+        else:
+            current["end_sec"] = max(float(current["end_sec"]), float(item["end_sec"]))
+            current["overlap"] = bool(current["overlap"] or item.get("overlap"))
+            current["needs_review"] = bool(current["needs_review"] or item.get("needs_review"))
+            current["_active_set"].update(item.get("active_speakers") or [])
+            for key, value in (item.get("speaker_scores") or {}).items():
+                current["_score_sum"][key] = current["_score_sum"].get(key, 0.0) + float(value)
+            current["_text"] = str(current["_text"]) + text
+            current["_confidence_sum"] = float(current["_confidence_sum"]) + float(item.get("speaker_confidence", 0.0))
+            current["_confidence_count"] = int(current["_confidence_count"]) + 1
+    flush()
+    return utterances
+
+
 def _decorate_timestamps(tokens: list[dict[str, Any]], transcript: str) -> list[dict[str, Any]]:
     """Put punctuation from ASR text back onto aligned tokens.
 
@@ -314,6 +592,7 @@ def analyse_timeline(
     noise_reduction: float = 8.0,
     include_overlap: bool = True,
     language: str = "Chinese",
+    diarization_backend: str = "",
 ) -> dict[str, Any]:
     """Analyze one complete media file and create an editable dubbing timeline."""
 
@@ -354,14 +633,27 @@ def analyse_timeline(
         # Demucs resident after the analysis phase on a 16GB card.
         unload_separation()
 
-    raw_diarization = diarize(
+    diarization_result = run_diarization(
         diarization_audio,
         speaker_num if int(speaker_num) > 0 else None,
         include_overlap=bool(include_overlap),
+        backend=diarization_backend or None,
     )
-    diarization = _normalise_diarization(raw_diarization)
+    diarization = _normalise_diarization_v3(diarization_result)
     labels = sorted({int(item["cluster_label"]) for item in diarization})
     label_to_speaker = {label: _speaker_id(index) for index, label in enumerate(labels)}
+    activity_speaker_map: dict[str, str] = {}
+    for item in diarization:
+        activity_id = str(item.get("activity_speaker_id") or "")
+        if activity_id:
+            activity_speaker_map.setdefault(activity_id, label_to_speaker[int(item["cluster_label"])])
+    # Frame-derived intervals always use canonical S00/S01/... identifiers.
+    # Fill the map from the sorted cluster order for older/fallback outputs.
+    for index, label in enumerate(labels):
+        activity_speaker_map.setdefault(f"S{index:02d}", label_to_speaker[label])
+    diarization_result["overlap_threshold"] = float(
+        diarization_result.get("overlap_threshold", 0.5) or 0.5
+    )
     speaker_items: list[dict[str, Any]] = []
     for index, label in enumerate(labels):
         speaker_id = _speaker_id(index)
@@ -375,6 +667,14 @@ def analyse_timeline(
                 "speaker_id": speaker_id,
                 "speaker_label": _speaker_label(index),
                 "cluster_label": label,
+                "activity_speaker_id": next(
+                    (
+                        str(item.get("activity_speaker_id"))
+                        for item in diarization
+                        if int(item["cluster_label"]) == label and item.get("activity_speaker_id")
+                    ),
+                    f"S{index:02d}",
+                ),
                 "speech_duration_sec": round(speech_duration, 3),
                 "reference_audio": None,
                 "reference_text": "",
@@ -387,7 +687,14 @@ def analyse_timeline(
         list(asr_result.get("time_stamps", []) or []),
         str(asr_result.get("text", "") or ""),
     )
-    segments = _build_utterances(timestamps, diarization, label_to_speaker)
+    segments = _build_utterances_v3(
+        timestamps,
+        diarization,
+        label_to_speaker,
+        activity_result=diarization_result,
+        activity_speaker_map=activity_speaker_map,
+        strategy=SPEAKER_ASSIGNMENT_STRATEGY,
+    )
     label_lookup = {item["speaker_id"]: item["speaker_label"] for item in speaker_items}
     for item in segments:
         item["speaker_label"] = label_lookup.get(item["speaker_id"], "未确定说话人")
@@ -415,10 +722,26 @@ def analyse_timeline(
         },
         "speakers": speaker_items,
         "diarization": {
-            "model": "3D-Speaker CAMPPlus + FSMN-VAD",
+            "backend": diarization_result.get("backend", "unknown"),
+            "requested_backend": diarization_result.get("requested_backend", diarization_backend or ""),
+            "actual_backend": diarization_result.get("actual_backend", diarization_result.get("backend", "unknown")),
+            "model": diarization_result.get("model", "unknown"),
             "speaker_num_requested": int(speaker_num),
             "include_overlap_requested": bool(include_overlap),
+            "overlap_requested": bool(diarization_result.get("overlap_requested", include_overlap)),
+            "overlap_enabled": bool(diarization_result.get("overlap_enabled", False)),
+            "fallback": bool(diarization_result.get("fallback", False)),
+            "fallback_reason": diarization_result.get("fallback_reason", ""),
+            "frame_resolution_sec": diarization_result.get("frame_resolution_sec", 0.1),
+            "posterior_available": bool(diarization_result.get("posterior_available", False)),
+            "speaker_assignment_strategy": SPEAKER_ASSIGNMENT_STRATEGY,
+            # Compatibility intervals remain available to the mixer. The
+            # posterior frames below are the source of token attribution.
             "segments": diarization,
+            "activity": {
+                "speakers": diarization_result.get("speakers", []),
+                "frames": diarization_result.get("frames", []),
+            },
         },
         "transcription": {
             "model": (
@@ -438,7 +761,8 @@ def analyse_timeline(
             "low_confidence_segment_count": low_confidence_count,
             "unassigned_segment_count": sum(1 for item in segments if item["speaker_id"] == "unknown"),
             "notes": [
-                "speaker_confidence 是时间轴覆盖度，不是模型原生概率。",
+                "speaker_confidence 来自 diarization frame posterior 的时间加权平均；重叠或低置信度台词保留为需复核。",
+                f"说话人归属策略：{SPEAKER_ASSIGNMENT_STRATEGY}；posterior 策略不依赖 0.35 秒静音切换规则。",
                 "说话人聚类使用分离后的人声轨；ASR 和时间戳使用清洁原轨，减少分离造成的字音损失。",
                 "人声与其余背景已先分成两路；两个人声同时说话时仍按同一人声路处理。",
             ],
@@ -460,6 +784,7 @@ def start_analysis(
     noise_reduction: float,
     include_overlap: bool,
     language: str,
+    diarization_backend: str = "",
 ) -> dict[str, Any]:
     job_id = uuid.uuid4().hex[:12]
     target_root = to_wsl_path(output_dir)
@@ -483,6 +808,7 @@ def start_analysis(
         "speaker_num": int(speaker_num),
         "noise_reduction": float(noise_reduction),
         "include_overlap": bool(include_overlap),
+        "diarization_backend": str(diarization_backend or ""),
         "language": language,
         "logs": [],
         "created_at": _now(),
@@ -515,6 +841,7 @@ def _run_analysis(job_id: str, source: Path, work_root: Path, output: Path) -> N
             noise_reduction=float(job.get("noise_reduction", 8.0)),
             include_overlap=bool(job.get("include_overlap", True)),
             language=str(job.get("language", "Chinese")),
+            diarization_backend=str(job.get("diarization_backend", "")),
         )
         shutil.copy2(work_root / "时间轴.json", output / "时间轴.json")
         shutil.copy2(work_root / "说话人时间轴.md", output / "说话人时间轴.md")
@@ -544,7 +871,15 @@ def _run_analysis(job_id: str, source: Path, work_root: Path, output: Path) -> N
             speaker_count=len(timeline["speakers"]),
             segment_count=len(timeline["segments"]),
             quality=timeline["quality"],
-            logs=["全片音轨分析完成", f"识别到 {len(timeline['speakers'])} 个说话人、{len(timeline['segments'])} 个台词片段"],
+            logs=[
+                "全片音轨分析完成",
+                f"识别到 {len(timeline['speakers'])} 个说话人、{len(timeline['segments'])} 个台词片段",
+                (
+                    f"diarization={timeline['diarization'].get('actual_backend')} "
+                    f"overlap_enabled={timeline['diarization'].get('overlap_enabled')} "
+                    f"fallback={timeline['diarization'].get('fallback')}"
+                ),
+            ],
         )
     except Exception as exc:
         _update_job(
@@ -802,7 +1137,7 @@ def _render_voice_track(items: list[dict[str, Any]], duration_sec: float, target
             data = data.mean(axis=1)
         if int(rate) != RATE:
             raise ValueError(f"配音片段采样率不是 {RATE}Hz：{path.name}")
-        start = max(0, int(round(float(item["start_sec"]) * RATE)))
+        start = max(0, int(round(float(item.get("render_start_sec", item["start_sec"])) * RATE)))
         if start >= sample_count:
             continue
         stop = min(sample_count, start + len(data))
@@ -872,20 +1207,24 @@ def _render_mixed_track(
     )
     target_ids: set[str]
     if target_speaker_id == "all":
-        target_ids = {str(item.get("speaker_id")) for item in timeline.get("speakers", [])}
+        # Only mute voices for which this generation actually produced a new
+        # track. An unbound speaker must remain audible in an "all" batch.
+        target_ids = {
+            str(item.get("speaker_id"))
+            for item in generated
+            if str(item.get("speaker_id") or "") not in {"", "unknown"}
+        }
     else:
         target_ids = {target_speaker_id}
-    target_labels = {
-        int(item["cluster_label"])
-        for item in timeline.get("speakers", [])
-        if str(item.get("speaker_id")) in target_ids and item.get("cluster_label") is not None
-    }
+    # Mute exactly the spans that received a replacement. This keeps an
+    # unselected segment of the same speaker audible and also prevents an
+    # unbound speaker from being muted in an "all" batch.
     mute_intervals = [
         item
-        for item in (timeline.get("diarization", {}) or {}).get("segments", [])
-        if int(item.get("cluster_label", -1)) in target_labels
+        for item in generated
+        if str(item.get("speaker_id") or "") in target_ids
     ]
-    for item in mute_intervals or generated:
+    for item in mute_intervals:
         _set_interval_gain(
             gains,
             float(item["start_sec"]),
@@ -970,19 +1309,31 @@ def start_generation(
     all_segments = _apply_segment_edits(timeline, edits, selected_ids)
     target_speaker_id = str(target_speaker_id or "all")
     known_speakers = {str(item.get("speaker_id")) for item in timeline.get("speakers", [])}
+    bound_speakers = {
+        str(item.get("speaker_id"))
+        for item in timeline.get("speakers", [])
+        if item.get("reference_audio")
+    }
     if target_speaker_id != "all" and target_speaker_id not in known_speakers:
         raise ValueError(f"找不到要替换的说话人：{target_speaker_id}")
-    segments = (
-        all_segments
-        if target_speaker_id == "all"
-        else [item for item in all_segments if item.get("speaker_id") == target_speaker_id]
-    )
+    if target_speaker_id == "all":
+        # Posterior attribution intentionally keeps ambiguous/overlap speech as
+        # unknown.  Do not send those units into TTS: they require manual review
+        # and otherwise make a batch generation fail after expensive synthesis.
+        segments = [
+            item
+            for item in all_segments
+            if str(item.get("speaker_id") or "") in bound_speakers
+        ]
+    else:
+        segments = [item for item in all_segments if item.get("speaker_id") == target_speaker_id]
     if not segments:
         raise ValueError("选择的说话人没有可替换台词")
     request = {
         "edits": edits,
         "selected_ids": selected_ids,
         "target_speaker_id": target_speaker_id,
+        "skipped_segment_count": max(0, len(all_segments) - len(segments)) if target_speaker_id == "all" else 0,
         "mode": mode,
         "speed": float(speed),
         "adaptive_speed": bool(adaptive_speed),
@@ -1101,6 +1452,11 @@ def _run_generation(
                 "两个人声同时说话时只能作为同一人声路处理，无法只从混音中精确拆开其中一个人。",
             ],
         }
+        skipped_count = int(request.get("skipped_segment_count", 0) or 0)
+        if skipped_count:
+            quality["notes"].append(
+                f"本次批量跳过 {skipped_count} 个未绑定、unknown 或重叠需复核片段；原声保持不变。"
+            )
         generation = {
             "generation_id": generation_id,
             "created_at": _now(),

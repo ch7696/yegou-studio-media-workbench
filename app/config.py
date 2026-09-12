@@ -21,6 +21,28 @@ FORCED_ALIGNER_DIR = os.getenv("QWEN_FORCED_ALIGNER_DIR", "/models/Qwen3-ForcedA
 DIAR_REPO = os.getenv("THREE_D_SPEAKER_REPO", "/opt/3D-Speaker")
 COSYVOICE_REPO = os.getenv("COSYVOICE_REPO", "/opt/CosyVoice")
 MODEL_CACHE = os.getenv("MODELSCOPE_CACHE", "/root/.cache/modelscope")
+# V3 keeps 3D-Speaker as the explicit A/B fallback and uses NVIDIA's
+# four-speaker Streaming Sortformer by default for the dubbing pipeline.
+DIARIZATION_BACKEND = os.getenv("DIARIZATION_BACKEND", "sortformer").strip().lower()
+HF_ACCESS_TOKEN = (
+    os.getenv("HF_ACCESS_TOKEN")
+    or os.getenv("HUGGINGFACE_HUB_TOKEN")
+    or os.getenv("HF_TOKEN")
+    or ""
+).strip()
+SORTFORMER_MODEL = os.getenv(
+    "SORTFORMER_MODEL",
+    "nvidia/diar_streaming_sortformer_4spk-v2.1",
+).strip()
+SORTFORMER_ACTIVITY_THRESHOLD = float(os.getenv("SORTFORMER_ACTIVITY_THRESHOLD", "0.50"))
+SORTFORMER_OVERLAP_THRESHOLD = float(os.getenv("SORTFORMER_OVERLAP_THRESHOLD", "0.50"))
+SPEAKER_ASSIGNMENT_STRATEGY = os.getenv("SPEAKER_ASSIGNMENT_STRATEGY", "posterior").strip().lower()
+SPEAKER_MIN_CONFIDENCE = float(os.getenv("SPEAKER_MIN_CONFIDENCE", "0.55"))
+SPEAKER_AMBIGUITY_MARGIN = float(os.getenv("SPEAKER_AMBIGUITY_MARGIN", "0.12"))
+SORTFORMER_CHUNK_LEN = int(os.getenv("SORTFORMER_CHUNK_LEN", "340"))
+SORTFORMER_CHUNK_RIGHT_CONTEXT = int(os.getenv("SORTFORMER_CHUNK_RIGHT_CONTEXT", "40"))
+SORTFORMER_FIFO_LEN = int(os.getenv("SORTFORMER_FIFO_LEN", "40"))
+SORTFORMER_SPKCACHE_UPDATE_PERIOD = int(os.getenv("SORTFORMER_SPKCACHE_UPDATE_PERIOD", "300"))
 RATE = 24_000
 SEPARATION_MODEL = os.getenv("VOICE_SEPARATION_MODEL", "HDEMUCS_HIGH_MUSDB")
 SEPARATION_CHUNK_SECONDS = float(os.getenv("VOICE_SEPARATION_CHUNK_SECONDS", "30"))

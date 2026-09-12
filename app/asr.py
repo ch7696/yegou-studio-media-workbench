@@ -165,3 +165,23 @@ def _transcribe_remote(paths: list[Path]) -> list[str]:
     except Exception as exc:
         print(f"远程 Qwen3-ASR 服务失败：{exc}", flush=True)
         return [""] * len(paths)
+
+
+def release_remote_model() -> dict[str, Any]:
+    """Ask the isolated ASR service to unload its model without stopping it."""
+
+    if not ASR_SERVICE_URL:
+        return {"ok": True, "released": [], "warnings": ["未配置独立 ASR 服务"]}
+    import requests
+
+    response = requests.post(f"{ASR_SERVICE_URL}/release-memory", timeout=15)
+    payload: dict[str, Any]
+    try:
+        raw = response.json()
+        payload = raw if isinstance(raw, dict) else {}
+    except ValueError:
+        payload = {}
+    if not response.ok:
+        detail = str(payload.get("detail") or response.text or f"HTTP {response.status_code}").strip()
+        raise RuntimeError(detail)
+    return payload

@@ -83,7 +83,7 @@
 <main class="shell">
   <header class="topbar">
     <a class="brand" href="/"><span class="brand-mark">声</span><span>本地音视频工作台</span></a>
-    <nav class="nav"><a href="/">主页</a><a href="/assets">语音资产</a><a href="/studio">视频配音</a></nav>
+    <nav class="nav"><a href="/">主页</a><a href="/assets">语音资产</a><a href="/studio">视频配音</a><a href="/timeline">时间线配音</a></nav>
   </header>
 
   <section class="hero">
@@ -112,9 +112,10 @@
       <div class="lanes"><div class="lane"><span class="lane-name">人声轨</span><span class="lane-bar"></span><span id="vocal-chip" class="chip warn">待分析</span></div><div class="lane"><span class="lane-name">背景 / 音效</span><span class="lane-bar bg"></span><span id="background-chip" class="chip warn">待分析</span></div></div>
       <div id="separate-status" class="status">等待分析。人声会用于说话人识别，背景和音效会在导出时保留。</div>
       <details><summary>分析选项（默认即可）</summary><div class="details-body form-grid">
+        <label class="field">说话人识别引擎<select id="analysis-backend"><option value="sortformer">Sortformer V3（推荐，细粒度）</option><option value="3dspeaker">3D-Speaker（旧版 A/B）</option></select><span class="help">Sortformer 保留约 80ms 活动帧；4 人以内最适合当前测试。实际使用的引擎会写入时间轴。</span></label>
         <label class="field">预计说话人数（0=自动）<input id="analysis-speaker-num" type="number" min="0" max="32" step="1" value="0"><span class="help">已知人数时填写会更稳定，例如四人素材填写 4。</span></label>
         <label class="field">清洁强度<input id="analysis-noise-reduction" type="number" min="0" max="30" step="1" value="8"><span class="help">0 表示不做降噪，过高可能损伤人声。</span></label>
-        <label class="field"><span class="inline"><input id="analysis-overlap" type="checkbox" style="width:auto"> 检测重叠说话</span><span class="help">多人同时说话时才打开；当前工作流仍输出人声 / 背景两路。</span></label>
+        <label class="field"><span class="inline"><input id="analysis-overlap" type="checkbox" style="width:auto" checked> 检测重叠说话</span><span class="help">默认开启；多人同时说话的台词会保留为“需人工复核”，当前工作流仍输出人声 / 背景两路。</span></label>
       </div></details>
     </section>
 
@@ -143,6 +144,8 @@
         <label class="field">参考开始（秒）<input id="reference-start" type="number" min="0" step="0.1" value="0"><span class="help">独立参考文件从这里截取。</span></label>
         <label class="field">参考时长（秒）<input id="reference-seconds" type="number" min="1" max="30" step="0.5" value="10"><span class="help">建议保留 6–15 秒清晰人声。</span></label>
         <label class="field wide">复刻方式<select id="tts-mode"><option value="zero_shot">Zero-shot：自动识别参考台词（推荐）</option><option value="cross_lingual">Cross-lingual：无需参考台词</option><option value="instruct2">Instruct2：使用表达指令</option></select><span class="help">Zero-shot 的参考台词会自动识别；模型需要它来稳定复刻音色。</span></label>
+        <label class="field">表达方式<select id="tts-expression"><option value="natural">自然对话（推荐）</option><option value="cheerful">开心</option><option value="sad">伤心</option><option value="angry">生气</option><option value="warm">温暖、亲切</option><option value="serious">沉稳、认真</option><option value="soft">轻声</option><option value="loud">更有力度</option><option value="custom">自定义指令</option></select><span class="help">需要明显情绪时建议使用 Instruct2。</span></label>
+        <label class="field wide">表达指令（可编辑）<textarea id="tts-instruction">You are a helpful assistant. 请用自然、像真人交流一样的语气说话，保持正常语速和自然的情绪起伏。</textarea><span class="help">只改变表达方式，不改动台词文字。</span></label>
         <label class="field wide"><span class="inline" style="justify-content:space-between"><span>参考台词（自动识别，可修改）</span><button id="transcript-btn" class="secondary" type="button">重新识别</button></span><textarea id="reference-text" placeholder="选择媒体后，Zero-shot 会自动填入这里"></textarea><span id="transcript-status" class="help">参考台词必须和参考音频实际说出的内容一致。</span></label>
         <label class="field">语速 speed<input id="tts-speed" type="number" min="0.5" max="2" step="0.05" value="1"><span class="help">官方范围 0.5–2。</span></label>
         <label class="field">新配音响度增益（dB）<input id="tts-output-gain" type="number" min="-12" max="18" step="0.5" value="6"><span class="help">默认 +6 dB；过高会自动防止爆音。</span></label>

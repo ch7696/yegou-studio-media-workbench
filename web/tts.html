@@ -42,7 +42,7 @@
 <body>
 <main>
   <h1>CosyVoice3 直接 TTS 工作台</h1>
-  <p>上传一段包含清楚人声的音频或视频，选择要生成的文本即可。系统会自动截取参考音频；Zero-shot 模式会自动识别参考台词，你可以检查后修改。</p>
+  <p>上传音频或视频后，系统会自动寻找清晰的单人语音，整理成约 8 秒参考音频，再生成目标文本。复杂设置收在下面，默认流程可以直接使用。</p>
 
   <section class="panel">
     <div class="title"><h2>参考媒体</h2><span>音频 / 视频 → prompt_wav</span></div>
@@ -50,9 +50,12 @@
       <div class="grid">
         <label class="wide">参考音频或视频<input id="reference-media" type="file" accept="audio/*,video/*" required></label>
         <label>输出目录<input id="output-dir" value="F:\\voice"></label>
-        <label>参考起点（秒）<input id="reference-start" type="number" min="0" step="0.1" value="0"></label>
-        <label>参考片段时长（秒）<input id="reference-seconds" type="number" min="1" max="30" step="0.5" value="10"><span class="help">官方前端上限 30 秒</span></label>
-        <label>参考音频降噪<input id="noise-reduction" type="number" min="0" max="30" step="1" value="0"><span class="help">默认 0，保留原始音色</span></label>
+        <label>从第几秒开始扫描<input id="reference-start" type="number" min="0" step="0.1" value="0"><span class="help">默认从文件开头寻找人声</span></label>
+        <label>最多扫描时长（秒）<input id="reference-seconds" type="number" min="1" max="300" step="1" value="60"><span class="help">长视频可适当增加</span></label>
+        <label>参考音频目标时长（秒）<input id="reference-target-seconds" type="number" min="1" max="30" step="0.5" value="8"><span class="help">会拼接多个清晰短片段</span></label>
+        <label>参考音频降噪<input id="noise-reduction" type="number" min="0" max="30" step="1" value="6"><span class="help">轻度降噪，避免破坏音色</span></label>
+        <label class="check"><input id="auto-select-reference" type="checkbox" checked>自动筛选清晰语音</label>
+        <label class="check"><input id="detect-reference-speakers" type="checkbox" checked>长音频自动筛选说话人</label>
         <label class="check"><input id="trim-leading-silence" type="checkbox" checked>自动裁剪开头静音</label>
       </div>
 
@@ -61,22 +64,37 @@
         <div class="grid">
         <label>模式
           <select id="mode">
-              <option value="cross_lingual">无需参考台词：音频 + 目标文本</option>
-              <option value="zero_shot">Zero-shot：自动识别参考台词</option>
+              <option value="cross_lingual">快速音色复刻：无需参考台词</option>
+              <option value="zero_shot">Zero-shot：需确认参考台词</option>
               <option value="instruct2">Instruct2：带表达指令</option>
           </select>
           <span class="help"><span class="term" title="默认推荐：只用参考声音提取音色，不要求你先听写台词。">新手建议先用无需参考台词模式</span></span>
         </label>
           <label>speed<input id="speed" type="number" min="0.5" max="2" step="0.05" value="1"></label>
           <label>输出响度增益（dB）<input id="output-gain-db" type="number" min="-12" max="18" step="0.5" value="6"><span class="help">默认 +6 dB；过高时自动防止削波</span></label>
-          <label>目标时长（秒）<input id="target-duration" type="number" min="0.5" max="120" step="0.5" value="5"></label>
+          <label>目标时长（秒）<input id="target-duration" type="number" min="0.5" max="120" step="0.5" value="5"><span class="help">只有勾选严格适配后才生效</span></label>
           <label>随机 seed<input id="seed" type="number" min="0" max="2147483647" step="1" value="0"><span class="help">官方 WebUI 同样设置随机 seed</span></label>
           <label class="wide">
             <span class="field-head"><span id="reference-label">参考台词（当前模式不需要）</span><button id="auto-transcript" type="button" hidden>重新识别</button></span>
             <textarea id="reference-text" disabled placeholder="切换到 Zero-shot 后，这里会自动填入参考音频中的台词"></textarea>
             <span id="reference-source" class="help"></span>
           </label>
-          <label class="wide"><span id="instruction-label">CosyVoice3 前置指令</span><textarea id="prompt-instruction">You are a helpful assistant.</textarea><span id="instruction-help" class="help">无参考台词复刻：按官方 CosyVoice3 示例把“指令 + &lt;|endofprompt|&gt; + 目标文本”送入 inference_cross_lingual。</span></label>
+          <label>表达方式
+            <select id="expression-preset">
+              <option value="natural">自然对话（推荐）</option>
+              <option value="cheerful">开心</option>
+              <option value="sad">伤心</option>
+              <option value="angry">生气</option>
+              <option value="warm">温暖、亲切</option>
+              <option value="serious">沉稳、认真</option>
+              <option value="soft">轻声</option>
+              <option value="loud">更有力度</option>
+              <option value="custom">自定义指令</option>
+            </select>
+            <span class="help">表达提示只影响说话方式，不会改动目标文字。</span>
+          </label>
+          <label class="check"><input id="prosody-tags" type="checkbox" checked>按标点加入轻度自然停顿</label>
+          <label class="wide"><span id="instruction-label">CosyVoice3 前置指令</span><textarea id="prompt-instruction">You are a helpful assistant. 请用自然、像真人交流一样的语气说话，保持正常语速和自然的情绪起伏。</textarea><span id="instruction-help" class="help">无参考台词复刻：按官方 CosyVoice3 示例把“指令 + &lt;|endofprompt|&gt; + 目标文本”送入 inference_cross_lingual。</span></label>
           <label class="wide">tts_text：要生成的文本<textarea id="target-text" required>今天辛苦了，接下来慢一点就好。</textarea></label>
           <label class="check"><input id="text-frontend" type="checkbox" checked>启用 text_frontend（官方默认）</label>
           <label class="check"><input id="fit-duration" type="checkbox">严格适配目标时长（后处理）</label>
@@ -94,6 +112,7 @@
     <audio id="output-audio" controls></audio>
     <div class="meta" style="margin-top:14px">本次实际送入 CosyVoice 的参考音频</div><div id="reference-path" class="path"></div>
     <audio id="reference-audio" controls></audio>
+    <div class="meta" style="margin-top:14px">参考音频检查</div><div id="reference-quality" class="help"></div>
   </section>
 </main>
 
@@ -101,6 +120,8 @@
   const form = document.getElementById('ttsForm');
   const mode = document.getElementById('mode');
   const referenceText = document.getElementById('reference-text');
+  const expressionPreset = document.getElementById('expression-preset');
+  const promptInstruction = document.getElementById('prompt-instruction');
   const referenceLabel = document.getElementById('reference-label');
   const instructionLabel = document.getElementById('instruction-label');
   const instructionHelp = document.getElementById('instruction-help');
@@ -109,6 +130,22 @@
   const referenceSource = document.getElementById('reference-source');
   const status = document.getElementById('status');
   const resultPanel = document.getElementById('result-panel');
+  let preparedReferenceId = '';
+
+  const expressionInstructions = {
+    natural: 'You are a helpful assistant. 请用自然、像真人交流一样的语气说话，保持正常语速和自然的情绪起伏。',
+    cheerful: 'You are a helpful assistant. 请非常开心地说一句话。',
+    sad: 'You are a helpful assistant. 请非常伤心地说一句话。',
+    angry: 'You are a helpful assistant. 请非常生气地说一句话。',
+    warm: 'You are a helpful assistant. 请用温暖、亲切、像真人交流一样的语气说话。',
+    serious: 'You are a helpful assistant. 请用沉稳、认真、清晰的语气说话。',
+    soft: 'You are a helpful assistant. Please say a sentence in a very soft voice.',
+    loud: 'You are a helpful assistant. Please say a sentence as loudly as possible.',
+  };
+
+  expressionPreset.addEventListener('change', () => {
+    if (expressionPreset.value !== 'custom') promptInstruction.value = expressionInstructions[expressionPreset.value];
+  });
 
   function esc(value) {
     return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -137,11 +174,14 @@
     autoTranscript.disabled = true;
     autoTranscript.textContent = '识别中…';
     referenceSource.className = 'help';
-    referenceSource.textContent = '正在截取参考片段并用 Qwen3-ASR 识别台词，请稍候。';
+    referenceSource.textContent = '正在寻找清晰人声、整理参考音频并用 Qwen3-ASR 识别台词，请稍候。';
     const data = new FormData();
     data.append('reference_media', file);
     data.append('reference_start', document.getElementById('reference-start').value);
     data.append('reference_seconds', document.getElementById('reference-seconds').value);
+    data.append('reference_target_seconds', document.getElementById('reference-target-seconds').value);
+    data.append('auto_select_reference', document.getElementById('auto-select-reference').checked ? 'true' : 'false');
+    data.append('detect_reference_speakers', document.getElementById('detect-reference-speakers').checked ? 'true' : 'false');
     data.append('noise_reduction', document.getElementById('noise-reduction').value);
     data.append('trim_leading_silence', document.getElementById('trim-leading-silence').checked ? 'true' : 'false');
     try {
@@ -149,6 +189,7 @@
       const result = await response.json();
       if (!response.ok) throw new Error(result.detail || '参考台词识别失败');
       referenceText.value = result.reference_text || '';
+      preparedReferenceId = result.prepared_reference_id || '';
       referenceSource.textContent = '已由 Qwen3-ASR 自动填入；请确认文字与参考音频完全一致，必要时直接修改。';
       status.className = 'status';
       status.textContent = result.message || '参考台词已填入';
@@ -161,8 +202,20 @@
     }
   }
 
-  referenceMedia.addEventListener('change', fillReferenceTranscript);
+  referenceMedia.addEventListener('change', () => {
+    preparedReferenceId = '';
+    fillReferenceTranscript();
+  });
   autoTranscript.addEventListener('click', fillReferenceTranscript);
+  [
+    'reference-start',
+    'reference-seconds',
+    'reference-target-seconds',
+    'auto-select-reference',
+    'detect-reference-speakers',
+    'noise-reduction',
+    'trim-leading-silence',
+  ].forEach(id => document.getElementById(id).addEventListener('input', () => { preparedReferenceId = ''; }));
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -179,10 +232,13 @@
     data.append('output_dir', document.getElementById('output-dir').value);
     data.append('mode', mode.value);
     data.append('reference_text', mode.value === 'zero_shot' ? referenceText.value : '');
-    data.append('prompt_instruction', document.getElementById('prompt-instruction').value);
+    data.append('prompt_instruction', promptInstruction.value);
     data.append('target_text', document.getElementById('target-text').value);
     data.append('reference_start', document.getElementById('reference-start').value);
     data.append('reference_seconds', document.getElementById('reference-seconds').value);
+    data.append('reference_target_seconds', document.getElementById('reference-target-seconds').value);
+    data.append('auto_select_reference', document.getElementById('auto-select-reference').checked ? 'true' : 'false');
+    data.append('detect_reference_speakers', document.getElementById('detect-reference-speakers').checked ? 'true' : 'false');
     data.append('noise_reduction', document.getElementById('noise-reduction').value);
     data.append('trim_leading_silence', document.getElementById('trim-leading-silence').checked ? 'true' : 'false');
     data.append('speed', document.getElementById('speed').value);
@@ -191,10 +247,13 @@
     data.append('text_frontend', document.getElementById('text-frontend').checked ? 'true' : 'false');
     data.append('target_duration', document.getElementById('target-duration').value);
     data.append('fit_duration', document.getElementById('fit-duration').checked ? 'true' : 'false');
+    data.append('prosody_tags', document.getElementById('prosody-tags').checked ? 'true' : 'false');
+    data.append('prepared_reference_id', mode.value === 'zero_shot' ? preparedReferenceId : '');
     try {
       const response = await fetch('/api/tts/direct', { method:'POST', body:data });
       const result = await response.json();
       if (!response.ok) throw new Error(result.detail || '直接 TTS 失败');
+      preparedReferenceId = '';
       status.textContent = result.message;
       resultPanel.hidden = false;
       document.getElementById('result-mode').textContent = result.mode;
@@ -203,6 +262,18 @@
       document.getElementById('result-message').className = result.warning ? 'status warn' : 'status';
       document.getElementById('output-path').textContent = result.output_path;
       document.getElementById('reference-path').textContent = result.reference_path;
+      const preparation = result.reference_preparation || {};
+      const quality = preparation.quality || {};
+      const detection = preparation.speaker_detection || {};
+      const warningText = (quality.warnings || []).join('；');
+      document.getElementById('reference-quality').textContent = [
+        `实际 ${Number(preparation.reference_duration_sec || 0).toFixed(2)} 秒`,
+        `候选 ${preparation.candidate_count || 0} 段`,
+        `选择 ${preparation.selected_candidate_count || 0} 段`,
+        `响度 RMS ${quality.rms_db ?? '-'} dBFS`,
+        detection.attempted ? `说话人筛选：${detection.backend || '已尝试'}` : '说话人筛选：快速路径',
+        warningText ? `提示：${warningText}` : '参考音频检查通过',
+      ].join(' · ');
       referenceSource.textContent = result.reference_text_source === 'auto_asr'
         ? '本次生成使用了自动识别的参考台词。'
         : (result.reference_text_source === 'manual' ? '本次生成使用了你确认后的参考台词。' : '');

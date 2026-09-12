@@ -14,6 +14,8 @@ const speakerFilter = document.getElementById('speaker-filter');
 const referenceText = document.getElementById('reference-text');
 const transcriptStatus = document.getElementById('transcript-status');
 const ttsMode = document.getElementById('tts-mode');
+const ttsExpression = document.getElementById('tts-expression');
+const ttsInstruction = document.getElementById('tts-instruction');
 const voiceFileName = document.getElementById('voice-file-name');
 const referenceFileInput = document.getElementById('speaker-reference-file');
 const referenceStartInput = document.getElementById('reference-start');
@@ -32,6 +34,21 @@ let segments = [];
 let analysisTimeline = null;
 let analysisJobId = '';
 let selectedIndex = -1;
+
+const expressionInstructions = {
+  natural: 'You are a helpful assistant. 请用自然、像真人交流一样的语气说话，保持正常语速和自然的情绪起伏。',
+  cheerful: 'You are a helpful assistant. 请非常开心地说一句话。',
+  sad: 'You are a helpful assistant. 请非常伤心地说一句话。',
+  angry: 'You are a helpful assistant. 请非常生气地说一句话。',
+  warm: 'You are a helpful assistant. 请用温暖、亲切、像真人交流一样的语气说话。',
+  serious: 'You are a helpful assistant. 请用沉稳、认真、清晰的语气说话。',
+  soft: 'You are a helpful assistant. Please say a sentence in a very soft voice.',
+  loud: 'You are a helpful assistant. Please say a sentence as loudly as possible.',
+};
+
+ttsExpression.addEventListener('change', () => {
+  if (ttsExpression.value !== 'custom') ttsInstruction.value = expressionInstructions[ttsExpression.value];
+});
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -88,6 +105,23 @@ function updateStemStatus(timeline) {
   }
 }
 
+function updateDiarizationStatus(timeline) {
+  const diarization = timeline?.diarization || {};
+  const actual = diarization.actual_backend || diarization.backend || 'unknown';
+  const requested = diarization.requested_backend || actual;
+  const frame = Number(diarization.frame_resolution_sec || 0);
+  const posterior = diarization.posterior_available ? 'posterior 已保留' : '仅兼容分段';
+  let message = `识别引擎：${actual}（请求 ${requested}） · ${posterior}`;
+  if (frame) message += ` · 帧粒度约 ${(frame * 1000).toFixed(0)}ms`;
+  if (diarization.overlap_requested) {
+    message += diarization.overlap_enabled ? ' · overlap 已实际启用' : ' · overlap 未启用';
+  }
+  if (diarization.fallback) {
+    message += ` · 已回退：${diarization.fallback_reason || '未提供原因'}`;
+  }
+  setStatus(document.getElementById('separate-status'), message, diarization.fallback ? 'warn' : '');
+}
+
 function populateSpeakers() {
   const speakers = analysisTimeline?.speakers || [];
   const oldFilter = speakerFilter.value || 'all';
@@ -112,6 +146,7 @@ function populateSpeakers() {
   const targetStillExists = oldTarget === 'all' || speakers.some(item => item.speaker_id === oldTarget);
   targetSpeaker.value = targetStillExists ? oldTarget : '';
   updateStemStatus(analysisTimeline);
+  updateDiarizationStatus(analysisTimeline);
 }
 
 function clampSelection() {
@@ -261,12 +296,15 @@ function renderSegments() {
     const confidence = Number(item.speaker_confidence || 0).toFixed(2);
     const ref = (analysisTimeline?.speakers || []).find(value => value.speaker_id === item.speaker_id);
     const refState = ref?.reference_audio ? '参考音色已绑定' : '待绑定参考音色';
+    const reviewState = item.needs_review || item.speaker_id === 'unknown'
+      ? ' · 需人工复核'
+      : '';
     return `<div class="segment ${selected}" data-index="${index}">
       <span class="segment-time">${fmt(item.start_sec)}<br>${fmt(item.end_sec)}</span>
       <span>
         <span class="segment-text">${esc(speaker)} · ${esc(item.text || '待识别台词')}</span><br>
         <input class="segment-edit" data-index="${index}" value="${esc(item.dubbing_text || item.text || '')}" aria-label="${esc(item.segment_id)} 配音台词">
-        <span class="segment-speaker">${esc(refState)} · 覆盖度 ${confidence}${item.overlap ? ' · 有重叠标记' : ''}</span>
+        <span class="segment-speaker">${esc(refState)} · 置信度 ${confidence}${item.overlap ? ' · 有重叠标记' : ''}${reviewState}</span>
       </span>
       <button class="ghost use-segment" type="button">选中</button>
     </div>`;
@@ -311,6 +349,7 @@ async function startAnalysis() {
   data.append('speaker_num', document.getElementById('analysis-speaker-num').value || '0');
   data.append('noise_reduction', document.getElementById('analysis-noise-reduction').value || '8');
   data.append('include_overlap', document.getElementById('analysis-overlap').checked ? 'true' : 'false');
+  data.append('diarization_backend', document.getElementById('analysis-backend')?.value || 'sortformer');
   data.append('language', 'Chinese');
   try {
     const job = await jsonResponse(await fetch('/api/dubbing/analyze', { method: 'POST', body: data }));
@@ -318,7 +357,8 @@ async function startAnalysis() {
     segments = [];
     renderSegments();
     markStep(2);
-    setStatus(timelineStatus, `任务 ${analysisJobId} 已开始：${job.output_dir || '输出到 F:\\voice'}\n正在等待 3D-Speaker 和 Qwen3-ASR…`);
+    const backend = document.getElementById('analysis-backend')?.value || 'sortformer';
+    setStatus(timelineStatus, `任务 ${analysisJobId} 已开始：${job.output_dir || '输出到 F:\\voice'}\n正在等待 ${backend} 和 Qwen3-ASR…`);
     await pollJob('analysis');
   } catch (error) {
     setStatus(timelineStatus, error.message || String(error), 'error');
@@ -331,6 +371,7 @@ async function refreshTimeline() {
   analysisTimeline = await jsonResponse(await fetch(`/api/dubbing/jobs/${analysisJobId}/timeline`));
   segments = analysisTimeline.segments || [];
   populateSpeakers();
+  updateDiarizationStatus(analysisTimeline);
   if (segments.length) updateSelectedSegment(0);
   else renderSegments();
   markStep(3);
@@ -474,7 +515,7 @@ async function generatePreview() {
   data.append('output_dir', 'F:\\voice');
   data.append('mode', ttsMode.value);
   data.append('reference_text', ttsMode.value === 'zero_shot' ? referenceText.value : '');
-  data.append('prompt_instruction', 'You are a helpful assistant.');
+  data.append('prompt_instruction', ttsInstruction.value);
   data.append('target_text', document.getElementById('target-text').value);
   data.append('reference_start', start);
   data.append('reference_seconds', seconds);
@@ -486,6 +527,7 @@ async function generatePreview() {
   data.append('text_frontend', 'true');
   data.append('target_duration', Math.max(.5, end - Number(startInput.value || 0)));
   data.append('fit_duration', document.getElementById('fit-duration').checked ? 'true' : 'false');
+  data.append('prosody_tags', 'true');
   try {
     const result = await jsonResponse(await fetch('/api/tts/direct', { method: 'POST', body: data }));
     setStatus(document.getElementById('tts-status'), result.message || '试音完成');
@@ -538,7 +580,7 @@ async function startGeneration() {
       speed: Number(document.getElementById('tts-speed').value) || 1,
       adaptive_speed: document.getElementById('adaptive-speed').checked,
       fit_to_slot: document.getElementById('fit-duration').checked,
-      prompt_instruction: 'You are a helpful assistant.',
+      prompt_instruction: ttsInstruction.value,
       text_frontend: true,
       seed: Number(document.getElementById('tts-seed').value) || 0,
       voice_gain_db: Number(document.getElementById('tts-output-gain').value) || 0,

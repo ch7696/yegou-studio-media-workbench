@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>无声视频时间线配音</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b111a; --panel:#151e2b; --line:#2b3b51; --text:#eff4fb; --muted:#9eabbc; --blue:#76aaff; --cyan:#55d4da; --green:#73d69b; --warn:#f4b65d; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:radial-gradient(circle at 12% -8%,#203b68 0,transparent 35rem),var(--bg); color:var(--text); font:14px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    a { color:inherit; }
+    .shell { max-width:1160px; margin:0 auto; padding:24px 26px 46px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; gap:18px; margin-bottom:32px; }
+    .brand { display:flex; align-items:center; gap:10px; color:var(--text); text-decoration:none; font-weight:760; font-size:17px; }
+    .mark { display:grid; place-items:center; width:32px; height:32px; border-radius:9px; background:linear-gradient(135deg,#5c9bff,#52d3d5); color:#091422; font-weight:900; }
+    .nav { display:flex; gap:16px; color:var(--muted); font-size:13px; }
+    .nav a:last-child { color:var(--text); }
+    h1 { margin:0; font-size:30px; letter-spacing:-.03em; }
+    h2 { margin:0; font-size:18px; }
+    p { margin:6px 0 0; color:var(--muted); }
+    .eyebrow { color:var(--cyan); font-size:11px; font-weight:760; letter-spacing:.1em; text-transform:uppercase; }
+    .layout { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr); gap:18px; align-items:start; }
+    .panel { padding:20px; border:1px solid var(--line); border-radius:14px; background:rgba(20,30,43,.94); box-shadow:0 14px 34px rgba(0,0,0,.16); }
+    .panel + .panel { margin-top:18px; }
+    .panel-head { display:flex; justify-content:space-between; align-items:start; gap:16px; margin-bottom:16px; }
+    .field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
+    label { display:grid; gap:5px; color:#d9e4f2; }
+    label.wide { grid-column:1/-1; }
+    input,select,textarea,button { width:100%; border:1px solid var(--line); border-radius:8px; background:#101721; color:var(--text); font:inherit; padding:9px 10px; }
+    textarea { min-height:76px; resize:vertical; }
+    input[type=file] { padding:8px; }
+    input[type=checkbox] { width:auto; accent-color:#3c88df; }
+    .check { display:flex; align-items:center; gap:8px; min-height:42px; padding-top:19px; }
+    .help { color:var(--muted); font-size:12px; line-height:1.45; }
+    .hint { margin:14px 0 0; padding:11px 13px; border:1px solid #2d5369; border-radius:9px; background:rgba(25,67,83,.25); color:#c9e7ed; font-size:12px; }
+    .actions { display:flex; gap:10px; align-items:center; margin-top:18px; }
+    button { width:auto; background:#2867ba; border:0; cursor:pointer; font-weight:700; padding:10px 17px; }
+    button:hover { background:#377ed5; } button:disabled { opacity:.55; cursor:wait; }
+    .status { padding:13px; border:1px solid var(--line); border-radius:9px; background:#101721; }
+    .status strong { display:block; color:var(--cyan); }
+    .status.error strong { color:#ff8c86; }
+    .progress { height:7px; margin-top:11px; overflow:hidden; border-radius:99px; background:#253348; }
+    .progress i { display:block; width:0; height:100%; border-radius:inherit; background:linear-gradient(90deg,#4f94ff,#54d4d0); transition:width .3s; }
+    .path { margin-top:5px; color:#c6d8ef; word-break:break-all; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; }
+    .preview { max-height:300px; overflow:auto; margin-top:13px; border-top:1px solid var(--line); }
+    .row { display:grid; grid-template-columns:78px 1fr; gap:10px; padding:9px 0; border-bottom:1px solid rgba(43,59,81,.65); }
+    .row time { color:var(--blue); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; }
+    .row span { color:#dbe6f4; }
+    .media { display:grid; gap:12px; margin-top:15px; }
+    video,audio { width:100%; border-radius:9px; background:#080c12; }
+    .hidden { display:none; }
+    .notice { margin-top:16px; color:var(--muted); font-size:12px; }
+    @media(max-width:820px) { .shell{padding:17px 14px 32px;} .topbar{display:block;} .nav{margin-top:12px;gap:11px;} .layout{grid-template-columns:1fr;} .field-grid{grid-template-columns:1fr;} label.wide{grid-column:auto;} }
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <a class="brand" href="/"><span class="mark">配</span><span>本地音视频工作台</span></a>
+    <nav class="nav"><a href="/">主页</a><a href="/assets">语音资产</a><a href="/studio">视频配音</a><a href="/timeline">时间线配音</a></nav>
+  </header>
+
+  <section class="panel" style="margin-bottom:18px">
+    <div class="eyebrow">SILENT VIDEO DUBBING</div>
+    <h1>按字幕时间线给无声视频配音</h1>
+    <p>导入视频、字幕时间线和一段参考音色。系统会逐段生成配音，按原时间放回视频，并导出新的音轨和视频。</p>
+  </section>
+
+  <form id="timeline-form" class="layout">
+    <div>
+      <section class="panel">
+        <div class="panel-head"><div><h2>1. 导入素材</h2><p>视觉分析项目导出的 JSON、SRT、VTT 都可以直接使用。</p></div></div>
+        <div class="field-grid">
+          <label class="wide">无声视频
+            <input name="video" type="file" accept="video/*,.mp4,.mov,.mkv" required>
+            <span class="help">视频画面会原样保留；如果视频本身有音轨，本入口会用新配音替换它。</span>
+          </label>
+          <label class="wide">字幕时间线
+            <input name="timeline" type="file" accept=".srt,.vtt,.json,text/plain" required>
+            <span class="help">可以选择 `字幕提取时间轴.json`，系统会读取其中的 segments；SRT/VTT 读取每条字幕的起止时间。</span>
+          </label>
+          <label class="wide">参考音色（音频或视频）
+            <input name="reference_media" type="file" accept="audio/*,video/*,.wav,.mp3,.mp4,.mov,.mkv" required>
+            <span class="help">默认扫描前 60 秒，自动找清晰人声并拼接约 8 秒参考音频。</span>
+          </label>
+        </div>
+        <div class="hint">当前版本按一段参考音色生成整条时间线。字幕中的 speaker_id 会保留在结果 JSON 中，多角色分别绑定音色属于下一版。</div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><div><h2>2. 配音设置</h2><p>参数会随任务保存到输出目录，方便之后复现。</p></div></div>
+        <div class="field-grid">
+          <label>配音模式
+            <select name="mode" id="mode">
+              <option value="cross_lingual">快速音色复刻：无需参考台词</option>
+              <option value="zero_shot">Zero-shot：需要参考台词</option>
+              <option value="instruct2">Instruct2：用指令控制</option>
+            </select>
+            <span class="help">自然表达可用快速音色复刻；需要明显情绪时建议切换 Instruct2。Zero-shot 的参考台词必须与参考音频实际内容一致。</span>
+          </label>
+          <label>表达方式
+            <select id="expression-preset">
+              <option value="natural">自然对话（推荐）</option>
+              <option value="cheerful">开心</option>
+              <option value="sad">伤心</option>
+              <option value="angry">生气</option>
+              <option value="warm">温暖、亲切</option>
+              <option value="serious">沉稳、认真</option>
+              <option value="soft">轻声</option>
+              <option value="loud">更有力度</option>
+              <option value="custom">自定义指令</option>
+            </select>
+            <span class="help">这是给模型的表达提示，不会改动字幕文字。</span>
+          </label>
+          <label>语速
+            <input name="speed" type="number" min="0.5" max="2" step="0.05" value="1">
+            <span class="help">1.0 是自然速度；默认不为了凑字幕时长强行变速。</span>
+          </label>
+          <label id="reference-text-wrap" class="wide hidden">参考台词（Zero-shot 必填）
+            <textarea name="reference_text" placeholder="填写参考音频中实际说出的原文"></textarea>
+          </label>
+          <label class="wide">表达指令（可编辑）
+            <textarea name="prompt_instruction" id="prompt-instruction">You are a helpful assistant. 请用自然、像真人交流一样的语气说话，保持正常语速和自然的情绪起伏。</textarea>
+            <span class="help">官方 CosyVoice3 会把它作为 prompt / instruct_text；选“自定义”后可直接修改。</span>
+          </label>
+          <label>配音响度增益（dB）
+            <input name="voice_gain_db" type="number" min="-12" max="18" step="0.5" value="6">
+            <span class="help">以活动语音 RMS 做标准化，默认 +6 dB。</span>
+          </label>
+          <label>随机种子
+            <input name="seed" type="number" min="0" step="1" value="0">
+            <span class="help">相同模型和参数下便于复现结果。</span>
+          </label>
+          <label>参考音频扫描秒数
+            <input name="reference_scan_seconds" type="number" min="1" max="300" step="1" value="60">
+            <span class="help">多人或前段无效时可以扩大范围。</span>
+          </label>
+          <label>参考音色目标秒数
+            <input name="reference_target_seconds" type="number" min="1" max="30" step="0.5" value="8">
+            <span class="help">会从多个清晰片段拼接，避免混入长停顿。</span>
+          </label>
+          <label>降噪强度
+            <input name="noise_reduction" type="number" min="0" max="30" step="1" value="6">
+            <span class="help">环境很干净时可设为 0。</span>
+          </label>
+          <label class="wide">输出目录
+            <input name="output_dir" value="F:\\voice">
+            <span class="help">Windows 路径；例如 `F:\\voice`。原视频不会被覆盖。</span>
+          </label>
+          <label class="check"><input name="fit_to_slot" id="fit-to-slot" type="checkbox"><span>温和适配字幕时长（仅 0.8–1.25 倍）</span></label>
+          <label class="check"><input name="adaptive_speed" id="adaptive-speed" type="checkbox"><span>自动微调语速（最多约 ±15%）</span></label>
+          <label class="check"><input name="auto_select_reference" id="auto-select-reference" type="checkbox" checked><span>自动筛选清晰人声</span></label>
+          <label class="check"><input name="detect_reference_speakers" id="detect-reference-speakers" type="checkbox" checked><span>尝试筛选单一说话人</span></label>
+          <label class="check"><input name="trim_leading_silence" id="trim-leading-silence" type="checkbox" checked><span>删除开头静音</span></label>
+          <label class="check"><input name="text_frontend" id="text-frontend" type="checkbox" checked><span>启用中文文本前端</span></label>
+          <label class="check"><input name="prosody_tags" id="prosody-tags" type="checkbox" checked><span>轻度自然停顿（按标点加入官方 [breath]）</span></label>
+        </div>
+        <div class="actions"><button id="submit" type="submit">开始时间线配音</button><span id="submit-note" class="help">任务会在后台运行，可以留在本页查看进度。</span></div>
+      </section>
+    </div>
+
+    <aside>
+      <section class="panel">
+        <div class="panel-head"><div><h2>3. 任务状态</h2><p>先解析时间线，再逐段生成。</p></div></div>
+        <div id="status" class="status"><strong>等待导入</strong><span class="help">选择三个文件后开始。</span><div class="progress"><i id="progress-bar"></i></div></div>
+        <div id="job-path" class="path"></div>
+        <div id="timeline-preview" class="preview"></div>
+        <div id="result" class="media hidden">
+          <div><div class="help">生成视频</div><video id="result-video" controls></video></div>
+          <div><div class="help">生成音轨</div><audio id="result-audio" controls></audio></div>
+          <div id="result-links"></div>
+        </div>
+      </section>
+      <p class="notice">时间边界完全来自导入文件。视觉项目按每秒画面估计字幕边界时，建议先用短片测试，再在 JSON/SRT/VTT 中微调起止时间。</p>
+    </aside>
+  </form>
+</main>
+<script>
+(() => {
+  const form = document.getElementById('timeline-form');
+  const mode = document.getElementById('mode');
+  const expressionPreset = document.getElementById('expression-preset');
+  const promptInstruction = document.getElementById('prompt-instruction');
+  const referenceWrap = document.getElementById('reference-text-wrap');
+  const submit = document.getElementById('submit');
+  const status = document.getElementById('status');
+  const progress = document.getElementById('progress-bar');
+  const preview = document.getElementById('timeline-preview');
+  const jobPath = document.getElementById('job-path');
+  const result = document.getElementById('result');
+  let timer = null;
+
+  const expressionInstructions = {
+    natural: 'You are a helpful assistant. 请用自然、像真人交流一样的语气说话，保持正常语速和自然的情绪起伏。',
+    cheerful: 'You are a helpful assistant. 请非常开心地说一句话。',
+    sad: 'You are a helpful assistant. 请非常伤心地说一句话。',
+    angry: 'You are a helpful assistant. 请非常生气地说一句话。',
+    warm: 'You are a helpful assistant. 请用温暖、亲切、像真人交流一样的语气说话。',
+    serious: 'You are a helpful assistant. 请用沉稳、认真、清晰的语气说话。',
+    soft: 'You are a helpful assistant. Please say a sentence in a very soft voice.',
+    loud: 'You are a helpful assistant. Please say a sentence as loudly as possible.',
+  };
+
+  expressionPreset.addEventListener('change', () => {
+    if (expressionPreset.value !== 'custom') promptInstruction.value = expressionInstructions[expressionPreset.value];
+  });
+
+  function syncMode() { referenceWrap.classList.toggle('hidden', mode.value !== 'zero_shot'); }
+  mode.addEventListener('change', syncMode); syncMode();
+
+  function setStatus(title, detail, value, failed = false) {
+    status.classList.toggle('error', failed);
+    status.innerHTML = `<strong>${title}</strong><span class="help">${detail || ''}</span><div class="progress"><i id="progress-bar"></i></div>`;
+    document.getElementById('progress-bar').style.width = `${Math.max(0, Math.min(100, Number(value || 0)))}%`;
+  }
+
+  function showPreview(rows) {
+    if (!Array.isArray(rows) || !rows.length) { preview.innerHTML = ''; return; }
+    preview.innerHTML = rows.map(row => {
+      const start = Number(row.start_sec || 0).toFixed(2);
+      const end = Number(row.end_sec || 0).toFixed(2);
+      const text = String(row.text || row.dubbing_text || '').replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]));
+      return `<div class="row"><time>${start}s–${end}s</time><span>${text}</span></div>`;
+    }).join('');
+  }
+
+  async function refresh(jobId) {
+    const response = await fetch(`/api/timeline/jobs/${jobId}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '读取任务失败');
+    setStatus(data.status_label || data.status, data.phase || '', data.progress || 0, data.status === 'failed');
+    if (data.output_dir) jobPath.textContent = `输出目录：${data.output_dir}`;
+    if (data.status === 'done') {
+      clearInterval(timer); timer = null; submit.disabled = false;
+      const urls = data.generation_urls || {};
+      if (urls.video || urls.voice_track) {
+        result.classList.remove('hidden');
+        if (urls.video) document.getElementById('result-video').src = `${urls.video}?t=${Date.now()}`;
+        if (urls.voice_track) document.getElementById('result-audio').src = `${urls.voice_track}?t=${Date.now()}`;
+        document.getElementById('result-links').innerHTML = Object.entries(urls).map(([key, url]) => `<a href="${url}" target="_blank">打开 ${key}</a>`).join('　');
+      }
+    } else if (data.status === 'failed') {
+      clearInterval(timer); timer = null; submit.disabled = false;
+      jobPath.textContent = data.error || '任务失败';
+    }
+  }
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    submit.disabled = true; result.classList.add('hidden'); preview.innerHTML = ''; jobPath.textContent = '';
+    setStatus('正在上传并解析', '检查视频画面和字幕时间线…', 2);
+    const data = new FormData(form);
+    for (const id of ['fit-to-slot','adaptive-speed','auto-select-reference','detect-reference-speakers','trim-leading-silence','text-frontend','prosody-tags']) {
+      const input = document.getElementById(id);
+      data.set(input.name, String(input.checked));
+    }
+    try {
+      const response = await fetch('/api/timeline/jobs', { method:'POST', body:data });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || '任务创建失败');
+      showPreview(payload.timeline_preview);
+      jobPath.textContent = `输出目录：${payload.output_dir || ''}`;
+      await refresh(payload.job_id);
+      timer = setInterval(() => refresh(payload.job_id).catch(error => { clearInterval(timer); timer = null; submit.disabled = false; setStatus('读取任务失败', error.message, 0, true); }), 1000);
+    } catch (error) {
+      submit.disabled = false; setStatus('任务创建失败', error.message, 0, true);
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -2,10 +2,9 @@ FROM ragflow-cosyvoice:0.0.1
 
 ENV PYTHONUNBUFFERED=1
 
-# 这些依赖来自 Qwen3-ASR 与 3D-Speaker 的实际导入链路。
-# 使用国内 PyPI 源，避免运行时才发现缺包。
-# Keep this layer compatible with the existing base image cache.  The
-# CosyVoice runtime is pinned immediately below to the official versions.
+# Keep the existing Qwen3-ASR / CosyVoice dependency layer reproducible from
+# the original local base image, then add only the official NeMo ASR runtime
+# needed by the four-speaker Streaming Sortformer checkpoint.
 RUN python3 -m pip install --no-cache-dir \
     addict==2.4.0 \
     simplejson==3.19.3 \
@@ -23,9 +22,39 @@ RUN python3 -m pip install --no-cache-dir \
     -i https://mirrors.aliyun.com/pypi/simple/ \
     --trusted-host mirrors.aliyun.com
 
-# CosyVoice's official requirements pin these versions.  Newer Transformers
-# releases change the Qwen2 generation path and produce garbled speech with
-# this CosyVoice3 checkpoint.  --no-deps avoids re-downloading the ASR stack.
+# NeMo is installed without dependency resolution so it cannot replace the
+# pinned CosyVoice transformers/tokenizers pair below.
+RUN python3 -m pip install --no-cache-dir \
+    Cython \
+    packaging \
+    'nemo_toolkit[asr]' \
+    --no-deps \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com
+
+# The Sortformer inference path uses NeMo's audio dataloader and alignment
+# helpers. Install only the runtime pieces absent from the base image;
+# training-only extras such as wandb are unnecessary.
+RUN python3 -m pip install --no-cache-dir \
+    lhotse==1.33.0 \
+    kaldialign==0.12.0 \
+    braceexpand==0.1.7 \
+    wrapt \
+    smart-open \
+    text-unidecode \
+    aistore \
+    sacrebleu \
+    whisper_normalizer \
+    tensorboard \
+    webdataset \
+    nv_one_logger_core \
+    nv_one_logger_training_telemetry \
+    nv_one_logger_pytorch_lightning_integration \
+    -i https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com
+
+# Keep the CosyVoice3-compatible pair after NeMo's dependency layer has
+# finished.
 RUN python3 -m pip install --no-cache-dir --no-deps \
     transformers==4.51.3 \
     tokenizers==0.21.4 \

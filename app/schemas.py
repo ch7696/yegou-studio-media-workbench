@@ -10,7 +10,11 @@ class TTSGenerateRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
     reference_text: str = Field(default="", max_length=2000)
     mode: Literal["zero_shot", "cross_lingual", "instruct2"] = "zero_shot"
-    prompt_instruction: str = Field(default="You are a helpful assistant.", max_length=500)
+    prompt_instruction: str = Field(
+        default="You are a helpful assistant. 请用自然、像真人交流一样的语气说话，保持正常语速和自然的情绪起伏。",
+        max_length=500,
+    )
+    prosody_tags: bool = True
     target_duration: float = Field(default=5.0, ge=0.5, le=120.0)
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     output_gain_db: float = Field(default=6.0, ge=-12.0, le=18.0)
@@ -39,7 +43,10 @@ class DubbingGenerateRequest(BaseModel):
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     adaptive_speed: bool = True
     fit_to_slot: bool = True
-    prompt_instruction: str = Field(default="You are a helpful assistant.", max_length=500)
+    prompt_instruction: str = Field(
+        default="You are a helpful assistant. 请用自然、像真人交流一样的语气说话，保持正常语速和自然的情绪起伏。",
+        max_length=500,
+    )
     text_frontend: bool = True
     seed: int = Field(default=0, ge=0, le=2_147_483_647)
     export_video: bool = True
