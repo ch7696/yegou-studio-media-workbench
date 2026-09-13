@@ -455,6 +455,7 @@ def _build_utterances_v3(
         current["text"] = text
         current["dubbing_text"] = text
         current["original_duration_sec"] = round(current["end_sec"] - current["start_sec"], 3)
+        current["units"] = current.pop("_units", [])
         count = max(1, int(current.pop("_confidence_count", 0)))
         current["speaker_confidence"] = round(float(current.pop("_confidence_sum", 0.0)) / count, 3)
         score_sum = current.pop("_score_sum", {})
