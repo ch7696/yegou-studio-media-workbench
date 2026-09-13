@@ -208,6 +208,7 @@ def _build_utterances(
         current["text"] = text
         current["dubbing_text"] = text
         current["original_duration_sec"] = round(current["end_sec"] - current["start_sec"], 3)
+        current["units"] = current.pop("_units", [])
         count = max(1, int(current.pop("_confidence_count", 0)))
         current["speaker_confidence"] = round(float(current.pop("_confidence_sum", 0.0)) / count, 3)
         current["status"] = "待配音"
@@ -506,6 +507,7 @@ def _build_utterances_v3(
                 "needs_review": bool(item.get("needs_review")),
                 "_active_set": set(item.get("active_speakers") or []),
                 "_score_sum": dict(item.get("speaker_scores") or {}),
+                "_units": [dict(item)],
                 "_text": text,
                 "_confidence_sum": float(item.get("speaker_confidence", 0.0)),
                 "_confidence_count": 1,
@@ -517,6 +519,7 @@ def _build_utterances_v3(
             current["_active_set"].update(item.get("active_speakers") or [])
             for key, value in (item.get("speaker_scores") or {}).items():
                 current["_score_sum"][key] = current["_score_sum"].get(key, 0.0) + float(value)
+            current["_units"].append(dict(item))
             current["_text"] = str(current["_text"]) + text
             current["_confidence_sum"] = float(current["_confidence_sum"]) + float(item.get("speaker_confidence", 0.0))
             current["_confidence_count"] = int(current["_confidence_count"]) + 1
@@ -579,6 +582,90 @@ def _write_timeline_markdown(path: Path, timeline: dict[str, Any]) -> None:
             f"{item['text'].replace('|', '／')} | {item['speaker_confidence']:.2f} | "
             f"{'是' if item['overlap'] else '否'} | {item['status']} |"
         )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _clock(seconds: float) -> str:
+    total_ms = max(0, int(round(float(seconds) * 1000.0)))
+    hours, remainder = divmod(total_ms, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    secs, millis = divmod(remainder, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
+
+
+def _write_dense_transcript(path: Path, timeline: dict[str, Any]) -> None:
+    """Write a high-density, human-readable transcript without LLM rewriting."""
+
+    lines = [
+        "# 逐字说话人时间轴",
+        "",
+        f"原始文件：{timeline['source_filename']}",
+        f"总时长：{_clock(float(timeline['duration_sec']))}",
+        "",
+        "说明：每个字都保留了时间、说话人、置信度、重叠和复核状态；文本未经过大模型改写。",
+        "",
+    ]
+    for index, segment in enumerate(timeline.get("segments", []), start=1):
+        speaker = str(segment.get("speaker_label") or segment.get("speaker_id") or "未确定说话人")
+        flags = []
+        if segment.get("overlap"):
+            flags.append("重叠")
+        if segment.get("needs_review"):
+            flags.append("需复核")
+        flag_text = f"；{'、'.join(flags)}" if flags else ""
+        lines.extend(
+            [
+                f"## {index:04d}  {_clock(segment.get('start_sec', 0))}–{_clock(segment.get('end_sec', 0))}  {speaker}",
+                f"置信度：{float(segment.get('speaker_confidence', 0.0)):.3f}{flag_text}",
+                f"原文：{str(segment.get('text') or '').strip()}",
+                "",
+                "| 字/词 | 开始 | 结束 | 说话人 | 归属置信度 | 对齐覆盖 | 重叠 |",
+                "|---|---|---|---|---:|---:|---|",
+            ]
+        )
+        units = list(segment.get("units") or [])
+        if units:
+            for unit in units:
+                lines.append(
+                    "| {text} | {start} | {end} | {speaker} | {confidence:.3f} | {coverage:.3f} | {overlap} |".format(
+                        text=str(unit.get("text") or "").replace("|", "／"),
+                        start=_clock(unit.get("start_sec", 0)),
+                        end=_clock(unit.get("end_sec", 0)),
+                        speaker=str(unit.get("speaker_id") or "unknown"),
+                        confidence=float(unit.get("speaker_confidence", 0.0) or 0.0),
+                        coverage=float(unit.get("alignment_coverage", 0.0) or 0.0),
+                        overlap="是" if unit.get("overlap") else "否",
+                    )
+                )
+        else:
+            lines.append("| （没有逐字对齐结果） |  |  |  |  |  |  |")
+        lines.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_dense_plaintext(path: Path, timeline: dict[str, Any]) -> None:
+    """Write a compact timestamped text file for downstream LLM ingestion."""
+
+    lines = [
+        f"原始文件：{timeline['source_filename']}",
+        f"总时长：{_clock(float(timeline['duration_sec']))}",
+        "",
+    ]
+    for segment in timeline.get("segments", []):
+        speaker = str(segment.get("speaker_label") or segment.get("speaker_id") or "未确定说话人")
+        flags = []
+        if segment.get("overlap"):
+            flags.append("overlap")
+        if segment.get("needs_review"):
+            flags.append("review")
+        suffix = f" [{','.join(flags)}]" if flags else ""
+        lines.append(
+            f"[{_clock(segment.get('start_sec', 0))} - {_clock(segment.get('end_sec', 0))}] "
+            f"{speaker} conf={float(segment.get('speaker_confidence', 0.0)):.3f}{suffix}: "
+            f"{str(segment.get('text') or '').strip()}"
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -772,6 +859,8 @@ def analyse_timeline(
     }
     save_json(work_root / "时间轴.json", timeline)
     _write_timeline_markdown(work_root / "说话人时间轴.md", timeline)
+    _write_dense_transcript(work_root / "逐字说话人时间轴.md", timeline)
+    _write_dense_plaintext(work_root / "全文逐字稿.txt", timeline)
     return timeline
 
 
@@ -780,6 +869,7 @@ def start_analysis(
     *,
     original_filename: str,
     output_dir: str,
+    analysis_profile: str = "dubbing",
     speaker_num: int,
     noise_reduction: float,
     include_overlap: bool,
@@ -789,12 +879,15 @@ def start_analysis(
     job_id = uuid.uuid4().hex[:12]
     target_root = to_wsl_path(output_dir)
     target_root.mkdir(parents=True, exist_ok=True)
-    output = target_root / f"{safe_name(Path(original_filename).stem, 70)}__全片配音项目__{job_id}"
+    profile = "raw" if str(analysis_profile).lower() == "raw" else "dubbing"
+    project_label = "原始分析项目" if profile == "raw" else "全片配音项目"
+    output = target_root / f"{safe_name(Path(original_filename).stem, 70)}__{project_label}__{job_id}"
     output.mkdir(parents=True, exist_ok=True)
     work_root = DUBBING_WORK / job_id
     job = {
         "job_id": job_id,
-        "kind": "dubbing_analysis",
+        "kind": "raw_analysis" if profile == "raw" else "dubbing_analysis",
+        "analysis_profile": profile,
         "status": "queued",
         "status_label": "排队中",
         "phase": "准备分析",
@@ -845,6 +938,12 @@ def _run_analysis(job_id: str, source: Path, work_root: Path, output: Path) -> N
         )
         shutil.copy2(work_root / "时间轴.json", output / "时间轴.json")
         shutil.copy2(work_root / "说话人时间轴.md", output / "说话人时间轴.md")
+        shutil.copy2(work_root / "逐字说话人时间轴.md", output / "逐字说话人时间轴.md")
+        shutil.copy2(work_root / "全文逐字稿.txt", output / "全文逐字稿.txt")
+        original_root = output / "原始材料"
+        original_root.mkdir(parents=True, exist_ok=True)
+        original_copy = original_root / safe_name(str(job.get("source_filename") or source.name), 120)
+        shutil.copy2(source, original_copy)
         stems_output = output / "音频"
         stems_output.mkdir(parents=True, exist_ok=True)
         stem_exports: dict[str, str] = {}
@@ -859,6 +958,13 @@ def _run_analysis(job_id: str, source: Path, work_root: Path, output: Path) -> N
                 shutil.copy2(source_path, target_path)
                 stem_exports[key] = to_windows_path(target_path)
         timeline["audio_stems"]["exports"] = stem_exports
+        timeline["exports"] = {
+            "original_media": to_windows_path(original_copy),
+            "timeline_json": to_windows_path(output / "时间轴.json"),
+            "speaker_timeline_markdown": to_windows_path(output / "说话人时间轴.md"),
+            "dense_transcript_markdown": to_windows_path(output / "逐字说话人时间轴.md"),
+            "dense_transcript_text": to_windows_path(output / "全文逐字稿.txt"),
+        }
         save_json(work_root / "时间轴.json", timeline)
         shutil.copy2(work_root / "时间轴.json", output / "时间轴.json")
         _update_job(

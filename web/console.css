@@ -144,6 +144,7 @@ body.console-page .nav a[href="/timeline"]::before { content: "▤"; }
 body.console-page .nav a[href="/studio"]::before { content: "◻"; }
 body.console-page .nav a[href="/assets"]::before { content: "◇"; }
 body.console-page .nav a[href="/tts"]::before { content: "●"; }
+body.console-page .nav a[href="/analysis"]::before { content: "≋"; }
 body.console-page .nav a:hover,
 body.console-page .nav a.active {
   color: var(--ink) !important;
@@ -337,6 +338,23 @@ body.console-page.home-page a.work-card.primary:hover {
   background: var(--surface) !important;
   color: var(--ink) !important;
 }
+body.console-page.home-page .analysis-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 15px;
+  padding: 17px 21px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--orange);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(42,67,81,.045);
+}
+body.console-page.home-page .analysis-entry:hover { border-color: #e7a17f; background: #fffaf7; text-decoration: none; }
+body.console-page.home-page .analysis-entry h2 { margin: 4px 0 3px; font-size: 16px; }
+body.console-page.home-page .analysis-entry p { max-width: 760px; margin: 0; color: var(--muted); font-size: 12px; }
+body.console-page.home-page .analysis-entry .card-open { flex: 0 0 auto; }
 
 @media (max-width: 900px) {
   body.console-page .nav { width: 184px; }
@@ -382,4 +400,7 @@ body.console-page.home-page a.work-card.primary:hover {
   body.console-page > .footer { padding: 0 16px 24px; }
   body.console-page.home-page > .layout { padding: 24px 16px 38px; }
   body.console-page.home-page > .footer { padding: 0 16px 24px; }
+}
+@media (max-width: 680px) {
+  body.console-page.home-page .analysis-entry { align-items: flex-start; flex-direction: column; gap: 10px; }
 }

@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>野构 Studio · 原始素材分析</title>
+  <link rel="icon" href="/brand-logo.png" type="image/png">
+  <style>
+    :root { color-scheme: light; --analysis-ink:#243d50; --analysis-muted:#526b7b; --analysis-line:#d6e1e7; --analysis-soft:#f7fafb; --analysis-orange:#e86a2a; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:#eef3f6; color:var(--analysis-ink); font:14px/1.6 Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; }
+    a { color:inherit; text-decoration:none; }
+    .analysis-content { display:grid; gap:18px; }
+    .analysis-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; }
+    .analysis-hero-copy { max-width:760px; }
+    .eyebrow { color:#c9531d; font-size:10px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+    h1 { margin:5px 0 7px; color:var(--analysis-ink); font-size:32px; letter-spacing:-.04em; line-height:1.2; }
+    h2 { margin:0; color:var(--analysis-ink); font-size:18px; letter-spacing:-.02em; }
+    p { margin:5px 0 0; color:var(--analysis-muted); }
+    .hero-stamp { min-width:190px; padding:13px 15px; border:1px solid var(--analysis-line); border-radius:6px; background:#fff; color:var(--analysis-muted); font-size:12px; }
+    .hero-stamp strong { display:block; margin-bottom:2px; color:var(--analysis-ink); font-size:15px; }
+    .analysis-layout { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(280px,.7fr); gap:18px; align-items:start; }
+    .analysis-card { padding:20px; border:1px solid var(--analysis-line); border-radius:6px; background:#fff; box-shadow:0 4px 14px rgba(42,67,81,.055); }
+    .card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding-bottom:14px; border-bottom:1px solid var(--analysis-line); }
+    .card-head p { max-width:680px; font-size:12px; }
+    .badge { display:inline-flex; align-items:center; min-height:25px; padding:3px 9px; border:1px solid #f0c6b0; border-radius:4px; background:#fff5ef; color:#c9531d; font-size:11px; font-weight:700; white-space:nowrap; }
+    .field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:17px; }
+    label { display:flex; flex-direction:column; gap:5px; color:var(--analysis-muted); font-size:12px; font-weight:650; }
+    label.wide { grid-column:1/-1; }
+    input,select,button { min-height:38px; border:1px solid #c3d3dc; border-radius:4px; background:#fff; color:var(--analysis-ink); font:inherit; padding:8px 10px; }
+    input:focus,select:focus { outline:2px solid rgba(232,106,42,.24); outline-offset:1px; }
+    input[type=checkbox] { min-height:auto; width:auto; accent-color:var(--analysis-orange); }
+    .check { flex-direction:row; align-items:center; gap:8px; padding-top:26px; }
+    .help { color:#708593; font-size:11px; font-weight:400; line-height:1.55; }
+    .upload-box { display:flex; align-items:center; justify-content:space-between; gap:18px; min-height:112px; margin-top:17px; padding:20px; border:1px dashed #d99b7b; border-radius:5px; background:#fffaf7; }
+    .upload-box strong { display:block; color:var(--analysis-ink); font-size:15px; }
+    .upload-box span { display:block; margin-top:4px; color:var(--analysis-muted); font-size:12px; }
+    .upload-box input { max-width:280px; }
+    .actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:18px; }
+    button { border-color:var(--analysis-orange); background:var(--analysis-orange); color:#fff; cursor:pointer; font-weight:750; }
+    button:hover { border-color:#c9531d; background:#c9531d; }
+    button:disabled { cursor:wait; opacity:.58; }
+    button.secondary { border-color:#c3d3dc; background:#f5f8f9; color:var(--analysis-ink); }
+    button.secondary:hover { border-color:#aabdc7; background:#eaf1f4; }
+    .notice { margin-top:16px; padding:11px 13px; border-left:3px solid var(--analysis-orange); background:#fff5ef; color:#754b39; font-size:12px; }
+    .status-box { margin-top:17px; padding:14px; border:1px solid var(--analysis-line); border-radius:5px; background:var(--analysis-soft); }
+    .status-line { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .status-line strong { color:var(--analysis-ink); }
+    .status-line span { color:#708593; font-size:11px; }
+    .progress { height:7px; margin-top:12px; overflow:hidden; border-radius:5px; background:#e0e8eb; }
+    .progress i { display:block; width:0; height:100%; background:var(--analysis-orange); transition:width .2s ease; }
+    .path { margin-top:12px; color:#c9531d; font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
+    .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:14px; }
+    .stat { padding:10px; border:1px solid var(--analysis-line); background:#fff; }
+    .stat span { display:block; color:#708593; font-size:10px; }
+    .stat strong { display:block; margin-top:2px; color:var(--analysis-ink); font-size:16px; }
+    .file-list { display:grid; gap:7px; margin-top:15px; }
+    .file-list a { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 10px; border:1px solid var(--analysis-line); border-radius:4px; background:#fff; color:#c9531d; font-size:12px; }
+    .file-list a:hover { border-color:#e7a17f; background:#fffaf7; }
+    .file-list small { color:#708593; font-size:10px; }
+    .empty { color:#708593; font-size:12px; }
+    .raw-points { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:16px; }
+    .raw-point { padding:12px; border-top:2px solid #c3d3dc; background:#f7fafb; }
+    .raw-point strong { display:block; color:var(--analysis-ink); font-size:12px; }
+    .raw-point span { display:block; margin-top:4px; color:var(--analysis-muted); font-size:11px; }
+    @media (max-width:900px) { .analysis-layout { grid-template-columns:1fr; } .analysis-hero { align-items:flex-start; flex-direction:column; } .hero-stamp { width:100%; } }
+    @media (max-width:650px) { .field-grid,.raw-points { grid-template-columns:1fr; } label.wide { grid-column:auto; } .check { padding-top:0; } .upload-box { align-items:flex-start; flex-direction:column; } .upload-box input { max-width:none; width:100%; } .stats { grid-template-columns:1fr; } }
+  </style>
+  <link rel="stylesheet" href="/console.css?v=20260912-ui2">
+</head>
+<body class="console-page">
+<main class="shell">
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-logo-wrap"><img class="brand-logo" src="/brand-logo.png" alt="野构 Studio"></span>
+      <span class="brand-copy"><strong>野构 Studio</strong><span>RAW ANALYSIS</span></span>
+    </a>
+    <nav class="nav"><a href="/">主页</a><a class="active" href="/analysis">原始分析</a><a href="/timeline">时间线配音</a><a href="/studio">角色配音</a><a href="/assets">语音资产</a><a href="/tts">独立试音</a></nav>
+  </header>
+
+  <section class="analysis-content">
+    <section class="analysis-hero">
+      <div class="analysis-hero-copy">
+        <div class="eyebrow">INTERVIEW / CONSULTATION</div>
+        <h1>访谈与咨询 · 原始素材分析</h1>
+        <p>导入一段长视频或音频，提取原始音轨、说话人、逐字时间戳和置信度。这里保留材料本身，后续可交给大模型继续整理。</p>
+      </div>
+      <div class="hero-stamp"><strong>原始分析模式</strong>只做音频、说话人和文本时间轴<br>不生成摘要，不启动配音</div>
+    </section>
+
+    <div class="analysis-layout">
+      <section class="analysis-card">
+        <div class="card-head"><div><div class="eyebrow">01 / SOURCE</div><h2>导入原始媒体</h2><p>支持长视频和长音频；原始文件会复制到本次分析输出目录，不覆盖源文件。</p></div><span class="badge">30 分钟场景</span></div>
+        <form id="raw-analysis-form">
+          <input name="analysis_profile" type="hidden" value="raw">
+          <div class="upload-box">
+            <div><strong>选择视频或音频文件</strong><span>视频会先提取音轨，再进行说话人和 ASR 分析。</span></div>
+            <input name="media" type="file" accept="audio/*,video/*,.mp4,.mov,.mkv,.wav,.mp3,.m4a" required>
+          </div>
+          <div class="field-grid">
+            <label>说话人数（0 = 自动）
+              <input name="speaker_num" type="number" min="0" max="4" step="1" value="0">
+              <span class="help">心理咨询或访谈已知是两人时可填 2；不确定就保持 0。</span>
+            </label>
+            <label>说话人识别引擎
+              <select name="diarization_backend"><option value="sortformer">Sortformer（推荐）</option><option value="3dspeaker">3D-Speaker（A/B 对照）</option></select>
+              <span class="help">默认保留细粒度 speaker activity 和多说话人重叠信息。</span>
+            </label>
+            <label>分析音轨降噪强度
+              <input name="noise_reduction" type="number" min="0" max="30" step="1" value="0">
+              <span class="help">默认 0，尽量保留原始语音细节；噪声严重时再提高。</span>
+            </label>
+            <label class="check"><input name="include_overlap" type="checkbox" checked><span>检测重叠说话<br><small class="help">同时说话的区间保留 overlap 标记，不强行归给一个人。</small></span></label>
+            <label class="wide">输出目录
+              <input name="output_dir" value="" placeholder="使用服务器默认目录">
+              <span class="help">留空使用当前配置；输出会包含原视频、音频、JSON 和高密度文本。</span>
+            </label>
+          </div>
+          <div class="notice">本页只准备分析任务。模型只有在你点击“开始原始分析”后才会运行；打开页面和查看历史结果不会占用显存。</div>
+          <div class="actions"><button id="start-button" type="submit">开始原始分析</button><span class="help">分析完成后可直接下载逐字时间轴和原始音轨。</span></div>
+        </form>
+      </section>
+
+      <aside class="analysis-card">
+        <div class="card-head"><div><div class="eyebrow">02 / OUTPUT</div><h2>分析结果</h2><p>每个阶段的结果都会落盘，方便大模型继续读取。</p></div></div>
+        <div class="status-box">
+          <div class="status-line"><strong id="status-title">等待导入</strong><span id="status-percent">0%</span></div>
+          <div id="status-detail" class="help" style="margin-top:4px">选择一个文件后，点击开始原始分析。</div>
+          <div class="progress"><i id="progress-bar"></i></div>
+        </div>
+        <div id="job-id" class="help" style="margin-top:12px"></div>
+        <div id="output-path" class="path"></div>
+        <div id="stats" class="stats" hidden>
+          <div class="stat"><span>说话人</span><strong id="speaker-count">-</strong></div>
+          <div class="stat"><span>台词片段</span><strong id="segment-count">-</strong></div>
+          <div class="stat"><span>需复核</span><strong id="review-count">-</strong></div>
+        </div>
+        <div id="files" class="file-list"><div class="empty">完成分析后，这里显示可下载的原始材料。</div></div>
+      </aside>
+    </div>
+
+    <section class="analysis-card">
+      <div class="card-head"><div><div class="eyebrow">03 / DATA CONTRACT</div><h2>为后续大模型准备的材料</h2><p>文本不做摘要和润色，尽量保留可以回溯到原音频的密集信息。</p></div></div>
+      <div class="raw-points">
+        <div class="raw-point"><strong>逐字说话人时间轴.md</strong><span>每个字的开始、结束、说话人、归属置信度、对齐覆盖和重叠状态。</span></div>
+        <div class="raw-point"><strong>时间轴.json</strong><span>完整原始结构，包括 frame activity、ASR tokens、speaker posterior 和合并片段。</span></div>
+        <div class="raw-point"><strong>全文逐字稿.txt</strong><span>适合直接交给大模型读取的带时间、说话人和复核标记文本。</span></div>
+      </div>
+    </section>
+  </section>
+
+  <div class="footer"><a href="/">返回主页</a> · 野构 Studio 原始素材分析</div>
+</main>
+<script>
+(() => {
+  const form = document.getElementById('raw-analysis-form');
+  const startButton = document.getElementById('start-button');
+  const title = document.getElementById('status-title');
+  const detail = document.getElementById('status-detail');
+  const percent = document.getElementById('status-percent');
+  const progress = document.getElementById('progress-bar');
+  const jobIdNode = document.getElementById('job-id');
+  const outputPath = document.getElementById('output-path');
+  const stats = document.getElementById('stats');
+  const files = document.getElementById('files');
+  let timer = null;
+
+  const configInput = form.querySelector('input[name="output_dir"]');
+  fetch('/api/system/config', { cache:'no-store' }).then(response => response.ok ? response.json() : null).then(value => {
+    if (value && value.default_output && configInput && !configInput.value) configInput.value = value.default_output;
+  }).catch(() => {});
+
+  function setStatus(nextTitle, nextDetail, value, failed = false) {
+    title.textContent = nextTitle || '处理中';
+    title.style.color = failed ? '#b33b2b' : '';
+    detail.textContent = nextDetail || '';
+    const safeValue = Math.max(0, Math.min(100, Number(value || 0)));
+    percent.textContent = `${safeValue}%`;
+    progress.style.width = `${safeValue}%`;
+  }
+
+  const labels = {
+    original_media: '原始媒体',
+    timeline_json: '完整时间轴 JSON',
+    speaker_timeline_markdown: '说话人时间轴 Markdown',
+    dense_transcript_markdown: '逐字说话人时间轴 Markdown',
+    dense_transcript_text: '高密度全文逐字稿',
+    clean_audio: '清洁混合音轨',
+    vocal_audio: '人声音轨',
+    background_audio: '背景 / 音效音轨',
+  };
+
+  function showFiles(payload) {
+    const entries = Object.entries(payload.analysis_files || {});
+    if (!entries.length) {
+      files.innerHTML = '<div class="empty">任务已完成，但暂时没有可下载文件。</div>';
+      return;
+    }
+    files.innerHTML = entries.map(([key, url]) => `<a href="${url}" target="_blank" rel="noreferrer"><span>${labels[key] || key}</span><small>打开 / 下载</small></a>`).join('');
+  }
+
+  async function refresh(jobId) {
+    const response = await fetch(`/api/dubbing/jobs/${encodeURIComponent(jobId)}`, { cache:'no-store' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || '读取任务失败');
+    setStatus(payload.status_label || payload.status, payload.phase || '', payload.progress || 0, payload.status === 'failed');
+    jobIdNode.textContent = `任务编号：${payload.job_id || jobId}`;
+    outputPath.textContent = payload.output_dir ? `输出目录：${payload.output_dir}` : '';
+    if (payload.status === 'done') {
+      if (timer) { clearInterval(timer); timer = null; }
+      startButton.disabled = false;
+      stats.hidden = false;
+      document.getElementById('speaker-count').textContent = payload.speaker_count ?? '-';
+      document.getElementById('segment-count').textContent = payload.segment_count ?? '-';
+      document.getElementById('review-count').textContent = payload.quality?.low_confidence_segment_count ?? '-';
+      showFiles(payload);
+    } else if (payload.status === 'failed') {
+      if (timer) { clearInterval(timer); timer = null; }
+      startButton.disabled = false;
+      files.innerHTML = `<div class="empty">${String(payload.error || '任务失败').replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]))}</div>`;
+    }
+  }
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const media = form.querySelector('input[name="media"]').files[0];
+    if (!media) return;
+    if (timer) { clearInterval(timer); timer = null; }
+    startButton.disabled = true;
+    stats.hidden = true;
+    files.innerHTML = '<div class="empty">任务完成后显示下载文件。</div>';
+    outputPath.textContent = '';
+    setStatus('正在创建任务', '只上传和检查媒体，不会在页面加载时启动模型。', 1);
+    const data = new FormData(form);
+    data.set('include_overlap', form.querySelector('input[name="include_overlap"]').checked ? 'true' : 'false');
+    try {
+      const response = await fetch('/api/dubbing/analyze', { method:'POST', body:data });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || '任务创建失败');
+      await refresh(payload.job_id);
+      timer = setInterval(() => refresh(payload.job_id).catch(error => {
+        if (timer) { clearInterval(timer); timer = null; }
+        startButton.disabled = false;
+        setStatus('读取任务失败', error.message || String(error), 0, true);
+      }), 1200);
+    } catch (error) {
+      startButton.disabled = false;
+      setStatus('任务创建失败', error.message || String(error), 0, true);
+    }
+  });
+})();
+</script>
+</body>
+</html>

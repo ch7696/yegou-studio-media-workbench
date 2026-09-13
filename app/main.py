@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
@@ -85,6 +86,11 @@ def assets_page() -> str:
 @app.get("/tts", response_class=HTMLResponse)
 def direct_tts_page() -> str:
     return Path("/app/web/tts.html").read_text(encoding="utf-8")
+
+
+@app.get("/analysis", response_class=HTMLResponse)
+def raw_analysis_page() -> str:
+    return Path("/app/web/analysis.html").read_text(encoding="utf-8")
 
 
 @app.get("/studio", response_class=HTMLResponse)
@@ -249,6 +255,7 @@ async def analyze(
 async def start_dubbing_analysis(
     media: UploadFile = File(...),
     output_dir: str = Form(""),
+    analysis_profile: str = Form("dubbing"),
     speaker_num: int = Form(0),
     noise_reduction: float = Form(8.0),
     include_overlap: bool = Form(True),
@@ -274,6 +281,7 @@ async def start_dubbing_analysis(
             source,
             original_filename=original,
             output_dir=output_dir or str(DEFAULT_OUTPUT),
+            analysis_profile=str(analysis_profile or "dubbing"),
             speaker_num=max(0, int(speaker_num)),
             noise_reduction=max(0.0, min(30.0, float(noise_reduction))),
             include_overlap=bool(include_overlap),
@@ -287,10 +295,29 @@ async def start_dubbing_analysis(
 
 
 def _dubbing_job_response(job: dict[str, Any]) -> dict[str, Any]:
-    """Add browser URLs for completed generated files without changing the manifest."""
+    """Add browser URLs for completed job files without changing the manifest."""
 
     response = dict(job)
     output_root = Path(str(response.get("output_path", "")))
+    if output_root.exists():
+        known_files = {
+            "original_media": Path("原始材料") / safe_name(str(response.get("source_filename") or "原始媒体"), 120),
+            "timeline_json": Path("时间轴.json"),
+            "speaker_timeline_markdown": Path("说话人时间轴.md"),
+            "dense_transcript_markdown": Path("逐字说话人时间轴.md"),
+            "dense_transcript_text": Path("全文逐字稿.txt"),
+            "clean_audio": Path("音频") / "清洁混合音轨.wav",
+            "vocal_audio": Path("音频") / "人声.wav",
+            "background_audio": Path("音频") / "背景声.wav",
+        }
+        analysis_files: dict[str, str] = {}
+        for key, relative in known_files.items():
+            if (output_root / relative).is_file():
+                analysis_files[key] = (
+                    f"/api/dubbing/jobs/{response.get('job_id')}/files/{quote(relative.as_posix(), safe='/')}"
+                )
+        if analysis_files:
+            response["analysis_files"] = analysis_files
     generation = response.get("generation")
     if isinstance(generation, dict):
         urls: dict[str, str] = {}
