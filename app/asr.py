@@ -71,19 +71,35 @@ def _normalize_result(item: object, *, include_timestamps: bool) -> dict[str, An
     }
 
 
-def transcribe(paths: list[Path]) -> list[str]:
-    """Transcribe through the isolated Qwen3-ASR service or local fallback."""
+def transcribe(paths: list[Path], *, raise_on_error: bool = False) -> list[str]:
+    """Transcribe through Qwen3-ASR, optionally surfacing service errors."""
 
-    return [item["text"] for item in transcribe_detailed(paths, return_time_stamps=False)]
+    return [
+        item["text"]
+        for item in transcribe_detailed(
+            paths,
+            return_time_stamps=False,
+            raise_on_error=raise_on_error,
+        )
+    ]
 
 
-def transcribe_detailed(paths: list[Path], *, return_time_stamps: bool = True) -> list[dict[str, Any]]:
+def transcribe_detailed(
+    paths: list[Path],
+    *,
+    return_time_stamps: bool = True,
+    raise_on_error: bool = False,
+) -> list[dict[str, Any]]:
     """Return Qwen3-ASR text plus optional ForcedAligner token timestamps."""
 
     if not paths:
         return []
     if ASR_SERVICE_URL:
-        return _transcribe_remote_detailed(paths, return_time_stamps=return_time_stamps)
+        return _transcribe_remote_detailed(
+            paths,
+            return_time_stamps=return_time_stamps,
+            raise_on_error=raise_on_error,
+        )
     with ASR_LOCK:
         model = None
         try:
@@ -115,13 +131,20 @@ def transcribe_detailed(paths: list[Path], *, return_time_stamps: bool = True) -
             # Identification should still return usable audio assets when ASR
             # is unavailable; the UI lets the user fill the reference text.
             print(f"参考台词自动识别失败：{exc}", flush=True)
+            if raise_on_error:
+                raise RuntimeError(f"Qwen3-ASR 识别失败：{exc}") from exc
             return [{"text": "", "language": "", "model": "", "time_stamps": []} for _ in paths]
         finally:
             if model is not None:
                 _unload(model)
 
 
-def _transcribe_remote_detailed(paths: list[Path], *, return_time_stamps: bool) -> list[dict[str, Any]]:
+def _transcribe_remote_detailed(
+    paths: list[Path],
+    *,
+    return_time_stamps: bool,
+    raise_on_error: bool = False,
+) -> list[dict[str, Any]]:
     """Call Qwen3-ASR without importing it into the CosyVoice process."""
 
     import requests
@@ -153,6 +176,8 @@ def _transcribe_remote_detailed(paths: list[Path], *, return_time_stamps: bool) 
             )
         except Exception as exc:
             print(f"远程 Qwen3-ASR 服务失败（{path.name}）：{exc}", flush=True)
+            if raise_on_error:
+                raise RuntimeError(f"远程 Qwen3-ASR 识别失败（{path.name}）：{exc}") from exc
             output.append({"text": "", "language": "", "model": "", "time_stamps": []})
     return output
 

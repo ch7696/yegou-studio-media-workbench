@@ -471,7 +471,7 @@ async def start_timeline_dubbing(
     timeline: UploadFile = File(...),
     reference_media: UploadFile = File(...),
     output_dir: str = Form(""),
-    mode: str = Form("cross_lingual"),
+    mode: str = Form("zero_shot"),
     reference_text: str = Form(""),
     prompt_instruction: str = Form(tts.DEFAULT_PROMPT_INSTRUCTION),
     reference_start: float = Form(0.0),
@@ -590,6 +590,33 @@ def sample(asset_id: str) -> FileResponse:
     return FileResponse(path, media_type="audio/wav", filename=path.name)
 
 
+def _normalize_reference_text(value: object) -> str:
+    """Keep ASR output usable as the exact CosyVoice prompt transcript."""
+
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    text = re.sub(r"\s+([，。！？；：、,.!?;:])", r"\1", text)
+    return text[:2000]
+
+
+def _transcribe_reference_audio(reference_audio: Path) -> tuple[str, dict[str, Any]]:
+    """Transcribe one prepared prompt clip and retain ASR provenance."""
+
+    results = asr.transcribe_detailed(
+        [reference_audio],
+        return_time_stamps=False,
+        raise_on_error=True,
+    )
+    item = results[0] if results else {}
+    text = _normalize_reference_text(item.get("text") if isinstance(item, dict) else "")
+    if not text:
+        raise RuntimeError("Qwen3-ASR 没有输出可用的参考台词，请换一段人声更清楚的媒体")
+    return text, {
+        "model": str(item.get("model") or "") if isinstance(item, dict) else "",
+        "language": str(item.get("language") or "") if isinstance(item, dict) else "",
+        "audio": str(reference_audio),
+    }
+
+
 @app.post("/api/tts/reference-transcript")
 async def reference_transcript(
     reference_media: UploadFile = File(...),
@@ -634,22 +661,23 @@ async def reference_transcript(
             auto_select=auto_select_reference,
             detect_speakers=detect_reference_speakers,
         )
+        text, reference_asr = _transcribe_reference_audio(reference_audio)
         preparation_manifest = {
             "source_sha256": digest(source),
             "reference_audio": str(reference_audio),
             "preparation": preparation,
+            "reference_text": text,
+            "reference_text_source": "auto_asr",
+            "reference_asr": reference_asr,
         }
         save_json(work_root / "准备.json", preparation_manifest)
-        detected = transcribe([reference_audio])
-        text = (detected[0] if detected else "").strip()
-        if not text:
-            raise RuntimeError("没有识别到参考台词，请换一段人声更清楚的片段或手工填写")
         return {
             "ok": True,
             "reference_text": text,
             "reference_text_source": "auto_asr",
             "reference_duration_sec": preparation["reference_duration_sec"],
             "reference_preparation": preparation,
+            "reference_asr": reference_asr,
             "prepared_reference_id": job_id,
             "message": "参考台词已自动填入，可直接使用或手工修改",
         }
@@ -663,7 +691,7 @@ async def reference_transcript(
 async def direct_tts(
     reference_media: UploadFile = File(...),
     output_dir: str = Form(""),
-    mode: str = Form("cross_lingual"),
+    mode: str = Form("zero_shot"),
     reference_text: str = Form(""),
     prompt_instruction: str = Form(tts.DEFAULT_PROMPT_INSTRUCTION),
     prosody_tags: bool = Form(True),
@@ -739,6 +767,8 @@ async def direct_tts(
         work_root = DIRECT_TTS_WORK / job_id
         reference_audio = work_root / "参考音频.wav"
         reused_preparation = False
+        prepared_reference_text = ""
+        prepared_reference_asr: dict[str, Any] = {}
         preparation: dict[str, Any]
         if re.fullmatch(r"[a-f0-9]{32}", str(prepared_reference_id or "")):
             saved_path = DIRECT_TTS_WORK / f"transcript-{prepared_reference_id}" / "准备.json"
@@ -750,6 +780,12 @@ async def direct_tts(
                         shutil.copy2(saved_audio, reference_audio)
                         preparation = dict(saved_preparation.get("preparation") or {})
                         preparation["reference_audio"] = str(reference_audio)
+                        prepared_reference_text = _normalize_reference_text(
+                            saved_preparation.get("reference_text")
+                        )
+                        saved_asr = saved_preparation.get("reference_asr")
+                        if isinstance(saved_asr, dict):
+                            prepared_reference_asr = dict(saved_asr)
                         reused_preparation = True
                 except (OSError, ValueError, TypeError, json.JSONDecodeError):
                     reused_preparation = False
@@ -769,13 +805,22 @@ async def direct_tts(
         exported_reference = output_root / "参考音频.wav"
         shutil.copy2(reference_audio, exported_reference)
 
+        reference_text = _normalize_reference_text(reference_text)
+        reference_asr: dict[str, Any] = {}
         reference_text_source = "manual" if reference_text else ""
-        if mode == "zero_shot" and not reference_text:
-            detected = transcribe([reference_audio])
-            reference_text = (detected[0] if detected else "").strip()
-            reference_text_source = "auto_asr"
-            if not reference_text:
-                raise RuntimeError("Zero-shot 自动识别参考台词失败，请手工填写参考音频中的实际台词")
+        if mode == "zero_shot":
+            if not reference_text and prepared_reference_text:
+                reference_text = prepared_reference_text
+                reference_asr = prepared_reference_asr
+                reference_text_source = "auto_asr"
+            elif not reference_text:
+                reference_text, reference_asr = _transcribe_reference_audio(reference_audio)
+                reference_text_source = "auto_asr"
+            elif prepared_reference_text and reference_text == prepared_reference_text:
+                # The browser sends the text returned by the preparation call;
+                # preserve its provenance instead of labeling it as manual.
+                reference_asr = prepared_reference_asr
+                reference_text_source = "auto_asr"
 
         preparation_warnings = list((preparation.get("quality") or {}).get("warnings") or [])
         quality_warning = None
@@ -831,6 +876,7 @@ async def direct_tts(
             "prepared_reference_id": prepared_reference_id if reused_preparation else "",
             "reference_text": reference_text,
             "reference_text_source": reference_text_source,
+            "reference_asr": reference_asr,
             "mode": mode,
             "prompt_instruction": prompt_instruction,
             "prosody_tags": bool(prosody_tags),
@@ -865,6 +911,7 @@ async def direct_tts(
             "warning": "\n".join(warnings) if warnings else None,
             "reference_text": reference_text,
             "reference_text_source": reference_text_source,
+            "reference_asr": reference_asr,
             "output_gain_db": output_gain_db,
             "reference_preparation": preparation,
         }

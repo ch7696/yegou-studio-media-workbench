@@ -97,11 +97,11 @@
         <div class="field-grid">
           <label>配音模式
             <select name="mode" id="mode">
-              <option value="cross_lingual">快速音色复刻：无需参考台词</option>
-              <option value="zero_shot">Zero-shot：需要参考台词</option>
+              <option value="zero_shot">Zero-shot：自动识别参考台词（推荐）</option>
+              <option value="cross_lingual">Cross-lingual：无需参考台词</option>
               <option value="instruct2">Instruct2：用指令控制</option>
             </select>
-            <span class="help">自然表达可用快速音色复刻；需要明显情绪时建议切换 Instruct2。Zero-shot 的参考台词必须与参考音频实际内容一致。</span>
+            <span class="help">上传参考媒体后，Zero-shot 会在后台自动识别参考台词；需要明显情绪时再切换 Instruct2。</span>
           </label>
           <label>表达方式
             <select id="expression-preset">

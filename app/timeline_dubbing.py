@@ -275,7 +275,7 @@ def _run(job_id: str) -> None:
         imported_copy = output_root / f"输入时间线{timeline_path.suffix.lower() or '.json'}"
         shutil.copy2(timeline_path, imported_copy)
 
-        mode = str(options.get("mode", "cross_lingual"))
+        mode = str(options.get("mode", "zero_shot"))
         reference_text = str(options.get("reference_text") or "").strip()
         reference_text_source = "manual" if reference_text else ""
         if mode == "zero_shot" and not reference_text:
@@ -399,7 +399,7 @@ def start_job(
 ) -> dict[str, Any]:
     """Create a queued silent-video job and return immediately."""
 
-    if str(options.get("mode", "cross_lingual")) not in {"zero_shot", "cross_lingual", "instruct2"}:
+    if str(options.get("mode", "zero_shot")) not in {"zero_shot", "cross_lingual", "instruct2"}:
         raise ValueError("不支持的 CosyVoice3 模式")
     imported = parse_timeline(timeline_source)
     target_root = to_wsl_path(output_dir)

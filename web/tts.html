@@ -73,19 +73,19 @@
         <div class="grid">
         <label>模式
           <select id="mode">
-              <option value="cross_lingual">快速音色复刻：无需参考台词</option>
-              <option value="zero_shot">Zero-shot：需确认参考台词</option>
+              <option value="zero_shot">Zero-shot：自动填入参考台词（推荐）</option>
+              <option value="cross_lingual">Cross-lingual：无需参考台词</option>
               <option value="instruct2">Instruct2：带表达指令</option>
           </select>
-          <span class="help"><span class="term" title="默认推荐：只用参考声音提取音色，不要求你先听写台词。">新手建议先用无需参考台词模式</span></span>
+          <span class="help"><span class="term" title="上传后自动清洁参考音频，并用 Qwen3-ASR 填入与参考音频对应的台词。">默认自动识别参考台词，确认无误后直接生成</span></span>
         </label>
           <label>speed<input id="speed" type="number" min="0.5" max="2" step="0.05" value="1"></label>
           <label>输出响度增益（dB）<input id="output-gain-db" type="number" min="-12" max="18" step="0.5" value="6"><span class="help">默认 +6 dB；过高时自动防止削波</span></label>
           <label>目标时长（秒）<input id="target-duration" type="number" min="0.5" max="120" step="0.5" value="5"><span class="help">只有勾选严格适配后才生效</span></label>
           <label>随机 seed<input id="seed" type="number" min="0" max="2147483647" step="1" value="0"><span class="help">官方 WebUI 同样设置随机 seed</span></label>
           <label class="wide">
-            <span class="field-head"><span id="reference-label">参考台词（当前模式不需要）</span><button id="auto-transcript" type="button" hidden>重新识别</button></span>
-            <textarea id="reference-text" disabled placeholder="切换到 Zero-shot 后，这里会自动填入参考音频中的台词"></textarea>
+            <span class="field-head"><span id="reference-label">参考台词（自动识别，可修改）</span><button id="auto-transcript" type="button" hidden>重新识别</button></span>
+            <textarea id="reference-text" disabled placeholder="选择参考媒体后，这里会自动填入对应台词"></textarea>
             <span id="reference-source" class="help"></span>
           </label>
           <label>表达方式
@@ -141,6 +141,9 @@
   const resultPanel = document.getElementById('result-panel');
   const outputDirInput = document.getElementById('output-dir');
   let preparedReferenceId = '';
+  let referencePreparationPromise = null;
+  let referencePreparationVersion = 0;
+  let autoReferenceText = '';
 
   fetch('/api/system/config', { cache: 'no-store' }).then(response => response.ok ? response.json() : null).then(config => {
     const output = config && config.default_output;
@@ -180,12 +183,27 @@
         ? 'Instruct2 会按官方模板传入：tts_text、instruct_text、prompt_wav；参考台词不会发送。'
         : '无参考台词复刻：把“指令 + &lt;|endofprompt|&gt; + 目标文本”作为 tts_text，直接调用 inference_cross_lingual。');
   }
-  mode.addEventListener('change', () => { updateMode(); if (mode.value === 'zero_shot') fillReferenceTranscript(); });
+  function invalidateReferencePreparation(clearText = false) {
+    preparedReferenceId = '';
+    referencePreparationVersion += 1;
+    if (clearText) {
+      autoReferenceText = '';
+      referenceText.value = '';
+      referenceSource.textContent = '';
+    }
+  }
+
+  mode.addEventListener('change', () => {
+    invalidateReferencePreparation(true);
+    updateMode();
+    if (mode.value === 'zero_shot') fillReferenceTranscript();
+  });
   updateMode();
 
   async function fillReferenceTranscript() {
     const file = referenceMedia.files[0];
-    if (!file || mode.value !== 'zero_shot') return;
+    if (!file || mode.value !== 'zero_shot') return false;
+    const requestVersion = ++referencePreparationVersion;
     autoTranscript.disabled = true;
     autoTranscript.textContent = '识别中…';
     referenceSource.className = 'help';
@@ -199,26 +217,39 @@
     data.append('detect_reference_speakers', document.getElementById('detect-reference-speakers').checked ? 'true' : 'false');
     data.append('noise_reduction', document.getElementById('noise-reduction').value);
     data.append('trim_leading_silence', document.getElementById('trim-leading-silence').checked ? 'true' : 'false');
-    try {
+    const request = (async () => {
       const response = await fetch('/api/tts/reference-transcript', { method:'POST', body:data });
       const result = await response.json();
       if (!response.ok) throw new Error(result.detail || '参考台词识别失败');
+      if (requestVersion !== referencePreparationVersion || referenceMedia.files[0] !== file) return false;
       referenceText.value = result.reference_text || '';
       preparedReferenceId = result.prepared_reference_id || '';
+      autoReferenceText = referenceText.value.trim();
       referenceSource.textContent = '已由 Qwen3-ASR 自动填入；请确认文字与参考音频完全一致，必要时直接修改。';
       status.className = 'status';
       status.textContent = result.message || '参考台词已填入';
+      return Boolean(preparedReferenceId && autoReferenceText);
+    })();
+    referencePreparationPromise = request;
+    try {
+      return await request;
     } catch (error) {
-      referenceSource.className = 'help error';
-      referenceSource.textContent = error.message || String(error);
+      if (requestVersion === referencePreparationVersion) {
+        referenceSource.className = 'help error';
+        referenceSource.textContent = error.message || String(error);
+      }
+      return false;
     } finally {
-      autoTranscript.disabled = false;
-      autoTranscript.textContent = '重新识别';
+      if (requestVersion === referencePreparationVersion) {
+        autoTranscript.disabled = false;
+        autoTranscript.textContent = '重新识别';
+      }
+      if (referencePreparationPromise === request) referencePreparationPromise = null;
     }
   }
 
   referenceMedia.addEventListener('change', () => {
-    preparedReferenceId = '';
+    invalidateReferencePreparation(true);
     fillReferenceTranscript();
   });
   autoTranscript.addEventListener('click', fillReferenceTranscript);
@@ -230,7 +261,14 @@
     'detect-reference-speakers',
     'noise-reduction',
     'trim-leading-silence',
-  ].forEach(id => document.getElementById(id).addEventListener('input', () => { preparedReferenceId = ''; }));
+  ].forEach(id => document.getElementById(id).addEventListener('input', () => invalidateReferencePreparation(true)));
+
+  referenceText.addEventListener('input', () => {
+    if (autoReferenceText && referenceText.value.trim() !== autoReferenceText) {
+      referenceSource.className = 'help';
+      referenceSource.textContent = '参考台词已手工修改；生成时将使用当前文字。';
+    }
+  });
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -242,6 +280,10 @@
     status.textContent = mode.value === 'zero_shot'
       ? '正在抽取参考音频、确认参考台词并生成……首次运行可能需要加载 ASR 和 TTS 模型。'
       : '正在抽取参考音频并生成……';
+    if (mode.value === 'zero_shot') {
+      if (referencePreparationPromise) await referencePreparationPromise;
+      if (!preparedReferenceId || !referenceText.value.trim()) await fillReferenceTranscript();
+    }
     const data = new FormData();
     data.append('reference_media', file);
     data.append('output_dir', document.getElementById('output-dir').value);
