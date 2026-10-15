@@ -72,3 +72,9 @@ class SubtitleCueEdit(BaseModel):
 
 class SubtitleSaveRequest(BaseModel):
     cues: list[SubtitleCueEdit] = Field(default_factory=list)
+
+
+class TtsModelSwitchRequest(BaseModel):
+    """切换 TTS 主模型变体的请求。"""
+
+    id: str = Field(min_length=1, max_length=64)

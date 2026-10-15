@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>主模型管理 · 野构 Studio</title>
+  <link rel="icon" href="/brand-logo.png" type="image/png">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1119;
+      --panel: #121a25;
+      --panel-soft: #0f1722;
+      --line: #26364a;
+      --text: #e7eef7;
+      --muted: #a9b7c8;
+      --blue: #4b91e8;
+      --cyan: #56c9cf;
+      --orange: #ed8b43;
+      --danger: #ff8f7c;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 15% -10%, #243a5b 0, transparent 34rem), var(--bg); color: var(--text); font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+    a { color: inherit; text-decoration: none; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 22px; min-height: 74px; padding: 13px 28px; border-bottom: 1px solid var(--line); background: rgba(10,16,25,.9); }
+    .brand { display: inline-flex; align-items: center; gap: 11px; min-width: 180px; }
+    .brand-logo-wrap { width: 38px; height: 38px; display: grid; place-items: center; overflow: hidden; border: 1px solid #38526f; border-radius: 10px; background: #fff; }
+    .brand-logo { width: 58px; height: 58px; object-fit: cover; }
+    .brand-copy { display: grid; line-height: 1.15; }
+    .brand-copy strong { font-size: 15px; }
+    .brand-copy span { margin-top: 3px; color: var(--muted); font-size: 9px; letter-spacing: .14em; }
+    .nav { display: flex; align-items: center; justify-content: flex-end; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+    .nav a:hover, .nav a.active { color: var(--text); text-decoration: underline; text-decoration-color: var(--orange); text-decoration-thickness: 2px; text-underline-offset: 6px; }
+    main { width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: 34px 0 54px; }
+    .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+    .eyebrow { color: var(--orange); font-size: 10px; font-weight: 800; letter-spacing: .16em; }
+    h1 { margin: 5px 0 7px; font-size: clamp(26px, 4vw, 38px); line-height: 1.18; letter-spacing: -.04em; }
+    h2 { margin: 0; font-size: 18px; }
+    p { margin: 0; color: var(--muted); }
+    .hero-note { max-width: 310px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: rgba(18,26,37,.72); color: var(--muted); font-size: 12px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; align-items: start; }
+    .panel { padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg, rgba(20,29,42,.98), rgba(15,22,32,.98)); box-shadow: 0 14px 35px rgba(0,0,0,.16); }
+    .panel + .panel { margin-top: 18px; }
+    .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+    .panel-head p { margin-top: 4px; font-size: 12px; }
+    .badge { padding: 4px 9px; border: 1px solid #6b4d35; border-radius: 999px; background: rgba(237,139,67,.1); color: #f1b57f; font-size: 11px; white-space: nowrap; }
+    .badge.ok { border-color: #3c6b62; background: rgba(86,201,207,.08); color: #85d6cb; }
+    .badge.warn { border-color: #75443b; background: rgba(255,143,124,.08); color: var(--danger); }
+    .variant-list { display: grid; gap: 12px; margin-top: 16px; }
+    .variant { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); }
+    .variant.is-active { border-color: #e7a07c; background: rgba(237,139,67,.08); }
+    .variant-copy strong { display: block; font-size: 14px; }
+    .variant-copy span { color: var(--muted); font-size: 12px; }
+    .variant-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    button { width: auto; min-height: 40px; border: 1px solid #397ec9; border-radius: 8px; background: var(--blue); color: var(--text); font: inherit; font-weight: 750; padding: 9px 11px; cursor: pointer; }
+    button:hover { background: #5ca0ec; }
+    button:disabled { cursor: wait; opacity: .6; }
+    .actions { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
+    .help { color: #8e9fb3; font-size: 11px; }
+    .status { margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-soft); }
+    .status strong, .status span { display: block; }
+    .status strong { font-size: 13px; }
+    .status.error { border-color: #75443b; color: var(--danger); }
+    .note { padding: 13px; border-left: 3px solid var(--orange); background: rgba(237,139,67,.08); color: #d4c1ae; font-size: 12px; }
+    .note code { color: #f1b57f; }
+    .steps { display: grid; gap: 12px; margin-top: 16px; }
+    .step { display: grid; grid-template-columns: 27px 1fr; gap: 10px; align-items: start; color: var(--muted); font-size: 12px; }
+    .step b { display: grid; place-items: center; width: 27px; height: 27px; border: 1px solid #375472; border-radius: 7px; background: #14243a; color: var(--cyan); font-size: 11px; }
+    .step strong { display: block; color: var(--text); font-size: 12px; }
+    .footer { margin-top: 20px; color: #77899e; font-size: 11px; }
+    @media (max-width: 860px) { .topbar { align-items: flex-start; flex-direction: column; } .nav { justify-content: flex-start; } .layout { grid-template-columns: 1fr; } .hero { align-items: flex-start; flex-direction: column; } .variant { align-items: flex-start; flex-direction: column; } }
+    @media (max-width: 560px) { main { width: min(100% - 26px, 1120px); padding-top: 24px; } .actions { align-items: stretch; flex-direction: column; } }
+  </style>
+  <link rel="stylesheet" href="/console.css?v=20260913-ui4">
+</head>
+<body class="console-page">
+  <main class="shell">
+    <header class="topbar">
+    <a class="brand" href="/" aria-label="返回野构 Studio">
+      <span class="brand-logo-wrap"><img class="brand-logo" src="/brand-logo.png" alt="野构 Studio"></span>
+      <span class="brand-copy"><strong>野构 Studio</strong><span>MAIN MODEL</span></span>
+    </a>
+    <nav class="nav" aria-label="主导航">
+      <a href="/">主页</a><a href="/analysis">访谈分析</a><a href="/subtitles">自动配字幕</a><a href="/timeline">时间线配音</a><a href="/environment">环境音分离</a><a href="/studio">角色配音</a><a href="/assets">语音资产</a><a href="/tts">独立试音</a><a href="/models" class="active">模型</a>
+    </nav>
+    </header>
+
+    <section class="hero">
+      <div><div class="eyebrow">MAIN MODEL / SWITCH</div><h1>切换启动的 TTS 主模型</h1><p>基础版与强化学习版（RL）共用同一个 CosyVoice3 模型目录，切换只替换 LLM 权重文件，已生成的音频不受影响，后续所有合成立即使用新权重。</p></div>
+      <div class="hero-note">切换会在已加载时原地替换权重（几秒）；未加载时仅记录选择，下次合成时加载。</div>
+    </section>
+
+    <section class="layout">
+      <div>
+        <section class="panel">
+          <div class="panel-head"><div><h2>TTS 主模型</h2><p id="model-dir">模型目录：…</p></div><span id="load-state" class="badge">读取中</span></div>
+          <div id="variant-list" class="variant-list"><p class="help">正在读取模型列表…</p></div>
+          <div class="actions">
+            <button id="refresh" type="button">刷新状态</button>
+            <span class="help">合成任务进行中无法切换（会返回提示）；切换失败会自动回滚到原变体。</span>
+          </div>
+          <div id="switch-status" class="status" hidden><strong>就绪</strong><span class="help"></span></div>
+        </section>
+      </div>
+      <aside>
+        <section class="panel">
+          <div class="panel-head"><div><h2>运行状态</h2><p>模型按需加载，可随时释放显存。</p></div></div>
+          <div class="steps">
+            <div class="step"><b>01</b><div><strong id="tts-loaded">TTS 状态：—</strong>首次合成或切换时加载。</div></div>
+            <div class="step"><b>02</b><div><strong id="cuda-used">显存：—</strong>CUDA allocated / reserved。</div></div>
+            <div class="step"><b>03</b><div><strong id="active-label">当前：—</strong>后续合成使用的变体。</div></div>
+          </div>
+          <div class="actions"><button id="release" type="button">释放显存</button></div>
+        </section>
+        <section class="panel"><div class="note">以后新增 TTS 变体（如新的权重文件）时，在 <code>app/models.py</code> 的注册表登记并在模型目录中放入权重文件即可，本页自动出现。</div></section>
+      </aside>
+    </section>
+    <div class="footer"><a href="/tts">去独立试音验证效果 →</a> · <a href="/">返回主页</a></div>
+  </main>
+
+  <script>
+  (() => {
+    const variantList = document.getElementById('variant-list');
+    const loadState = document.getElementById('load-state');
+    const modelDir = document.getElementById('model-dir');
+    const switchStatus = document.getElementById('switch-status');
+    const refreshBtn = document.getElementById('refresh');
+    const releaseBtn = document.getElementById('release');
+    const ttsLoaded = document.getElementById('tts-loaded');
+    const cudaUsed = document.getElementById('cuda-used');
+    const activeLabel = document.getElementById('active-label');
+    let busy = false;
+
+    function esc(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+    function showStatus(title, detail, failed = false) {
+      switchStatus.hidden = false;
+      switchStatus.classList.toggle('error', failed);
+      switchStatus.innerHTML = `<strong>${esc(title)}</strong><span class="help">${esc(detail || '')}</span>`;
+    }
+
+    async function fetchMemory() {
+      try {
+        const response = await fetch('/api/system/memory', {cache: 'no-store'});
+        const data = await response.json();
+        if (data.cuda && data.cuda.available) {
+          cudaUsed.textContent = `显存：${(Number(data.cuda.allocated_mb || 0) / 1024).toFixed(2)}G / ${(Number(data.cuda.reserved_mb || 0) / 1024).toFixed(2)}G`;
+        } else {
+          cudaUsed.textContent = '显存：不可用';
+        }
+        ttsLoaded.textContent = data.tts_loaded ? 'TTS 状态：已加载' : 'TTS 状态：未加载';
+      } catch (error) { /* 状态面板是辅助信息，失败静默 */ }
+    }
+
+    function renderVariants(state) {
+      variantList.innerHTML = state.variants.map(variant => {
+        const badges = [
+          variant.active ? '<span class="badge">当前</span>' : '',
+          variant.loaded ? '<span class="badge ok">已加载</span>' : '',
+          variant.available ? '' : '<span class="badge warn">权重缺失</span>',
+        ].join('');
+        const disabled = busy || variant.active || !variant.available;
+        return `<div class="variant ${variant.active ? 'is-active' : ''}">
+          <div class="variant-copy"><strong>${esc(variant.label)}</strong><span>${esc(variant.note || '')} · ${esc(variant.llm)}</span></div>
+          <div class="variant-meta">${badges}<button data-id="${esc(variant.id)}" type="button" ${disabled ? 'disabled' : ''}>${variant.active ? '使用中' : '切换到此模型'}</button></div>
+        </div>`;
+      }).join('');
+      variantList.querySelectorAll('button[data-id]').forEach(button => {
+        button.addEventListener('click', () => switchTo(button.dataset.id));
+      });
+      const active = state.variants.find(variant => variant.active);
+      activeLabel.textContent = `当前：${active ? active.label : '—'}`;
+    }
+
+    async function refresh() {
+      const response = await fetch('/api/models', {cache: 'no-store'});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || '读取模型列表失败');
+      modelDir.textContent = `模型目录：${data.model_dir}`;
+      loadState.textContent = data.tts_loaded ? '已加载' : '未加载';
+      renderVariants(data);
+      fetchMemory();
+    }
+
+    async function switchTo(id) {
+      if (busy) return;
+      busy = true;
+      showStatus('正在切换…', '正在重新载入权重，请稍候，不要关闭页面。');
+      variantList.querySelectorAll('button').forEach(button => { button.disabled = true; });
+      try {
+        const response = await fetch('/api/models/switch', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({id}),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || '切换失败');
+        showStatus(data.message, data.loaded ? '权重已载入显存，后续合成立即生效。' : '已记录选择，将在下次合成时加载。');
+      } catch (error) {
+        showStatus('切换失败', error.message, true);
+      } finally {
+        busy = false;
+        try { await refresh(); } catch (error) { /* 保留切换结果提示 */ }
+      }
+    }
+
+    refreshBtn.addEventListener('click', () => {
+      refresh().then(() => showStatus('状态已刷新', '')).catch(error => showStatus('刷新失败', error.message, true));
+    });
+
+    releaseBtn.addEventListener('click', async () => {
+      releaseBtn.disabled = true;
+      try {
+        const response = await fetch('/api/system/release-memory', {method: 'POST'});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || '释放失败');
+        showStatus(data.message || '显存已释放', (data.warnings || []).join('；'));
+      } catch (error) {
+        showStatus('释放失败', error.message, true);
+      } finally {
+        releaseBtn.disabled = false;
+        try { await refresh(); } catch (error) { /* 忽略 */ }
+      }
+    });
+
+    refresh().catch(error => { variantList.innerHTML = `<p class="help">读取失败：${esc(error.message)}</p>`; });
+  })();
+  </script>
+</body>
+</html>

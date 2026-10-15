@@ -18,7 +18,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 import torch
 
-from . import asr, dubbing, environment, separation, subtitles, timeline_dubbing, tts
+from . import asr, dubbing, environment, models, separation, subtitles, timeline_dubbing, tts
 from .asr import transcribe
 from .assets import save_card
 from .audio import fit_audio
@@ -33,6 +33,7 @@ from .config import (
     ENVIRONMENT_UPLOADS,
     GITHUB_REPOSITORY_URL,
     MANIFESTS,
+    MODEL_DIR,
     RESULTS,
     SUBTITLE_UPLOADS,
     UPLOADS,
@@ -45,6 +46,7 @@ from .schemas import (
     DubbingGenerateRequest,
     DubbingTimelineSaveRequest,
     SubtitleSaveRequest,
+    TtsModelSwitchRequest,
     TTSGenerateRequest,
 )
 from .timeline import parse_timeline
@@ -54,6 +56,7 @@ from .utils import digest, load_manifest, probe, safe_name, save_json, to_window
 ensure_directories()
 app = FastAPI(title="野构 Studio 声像制片台")
 MEMORY_RELEASE_LOCK = threading.Lock()
+MODEL_SWITCH_LOCK = threading.Lock()
 
 
 def _memory_status() -> dict[str, Any]:
@@ -120,6 +123,11 @@ def environment_page() -> str:
     return Path("/app/web/environment.html").read_text(encoding="utf-8")
 
 
+@app.get("/models", response_class=HTMLResponse)
+def models_page() -> str:
+    return Path("/app/web/models.html").read_text(encoding="utf-8")
+
+
 @app.get("/studio.js")
 def dubbing_studio_script() -> FileResponse:
     return FileResponse(Path("/app/web/studio.js"), media_type="application/javascript")
@@ -142,7 +150,7 @@ def health() -> dict[str, Any]:
         "identification": "Sortformer / 3D-Speaker + Qwen3-ASR",
         "diarization_backend": DIARIZATION_BACKEND,
         "diarization_backends": backend_status(),
-        "tts": "Fun-CosyVoice3-0.5B-2512",
+        "tts": tts.active_model_label(),
         "tts_modes": ["zero_shot", "cross_lingual", "instruct2"],
         "tts_loaded": tts.TTS_MODEL is not None,
         "separation_loaded": separation.SEPARATION_MODEL_INSTANCE is not None,
@@ -166,6 +174,61 @@ def system_config() -> dict[str, Any]:
         "default_output": to_windows_path(DEFAULT_OUTPUT),
         "github_url": GITHUB_REPOSITORY_URL,
     }
+
+
+@app.get("/api/models")
+def model_registry() -> dict[str, Any]:
+    """TTS 主模型变体注册表与当前状态。"""
+
+    loaded_id = tts.TTS_VARIANT_ID if tts.TTS_MODEL is not None else None
+    active_id = tts.TTS_VARIANT_ID or models.active_tts_variant_id()
+    return {
+        "ok": True,
+        "model_dir": str(MODEL_DIR),
+        "tts_loaded": tts.TTS_MODEL is not None,
+        "active": active_id,
+        "variants": models.tts_variant_status(active_id=active_id, loaded_variant=loaded_id),
+    }
+
+
+@app.post("/api/models/switch")
+def switch_model(payload: TtsModelSwitchRequest) -> dict[str, Any]:
+    """切换 TTS 主模型变体（原地替换权重，7866 服务保持在线）。"""
+
+    if not MODEL_SWITCH_LOCK.acquire(False):
+        raise HTTPException(status_code=409, detail="模型切换正在进行，请稍后再试")
+    tts_acquired = False
+    try:
+        # 与合成路径共用同一把锁：切换期间不允许并发合成，合成期间不允许切换。
+        tts_acquired = tts.TTS_LOCK.acquire(False)
+        if not tts_acquired:
+            raise HTTPException(status_code=409, detail="当前有 TTS 任务正在执行，完成后再切换模型")
+        if separation.SEPARATION_LOCK.locked():
+            raise HTTPException(status_code=409, detail="当前有人声分离任务正在执行，完成后再切换模型")
+        try:
+            result = tts.switch_variant(payload.id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"切换失败，已尝试回滚：{exc}") from exc
+        loaded_id = tts.TTS_VARIANT_ID if tts.TTS_MODEL is not None else None
+        return {
+            "ok": True,
+            "message": f"TTS 主模型已切换到：{result['variant']['label']}",
+            "active": str(result["variant"]["id"]),
+            "previous": result["previous"],
+            "loaded": bool(result["loaded"]),
+            "variants": models.tts_variant_status(
+                active_id=str(result["variant"]["id"]), loaded_variant=loaded_id
+            ),
+            **_memory_status(),
+        }
+    finally:
+        if tts_acquired:
+            tts.TTS_LOCK.release()
+        MODEL_SWITCH_LOCK.release()
 
 
 @app.post("/api/system/release-memory")
@@ -1242,7 +1305,7 @@ def _generate(request: TTSGenerateRequest) -> dict[str, Any]:
                 "fit_duration": request.fit_duration,
                 "raw_duration_sec": round(raw_seconds, 3),
                 "final_duration_sec": round(final_seconds, 3),
-                "model": "Fun-CosyVoice3-0.5B-2512",
+                "model": tts.active_model_label(),
                 "mode": request.mode,
                 "output": str(exported),
                 "output_sha256": digest(exported),

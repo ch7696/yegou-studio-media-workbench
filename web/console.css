@@ -147,6 +147,7 @@ body.console-page .nav a[href="/tts"]::before { content: "●"; }
 body.console-page .nav a[href="/analysis"]::before { content: "≋"; }
 body.console-page .nav a[href="/subtitles"]::before { content: "▥"; }
 body.console-page .nav a[href="/environment"]::before { content: "≈"; }
+body.console-page .nav a[href="/models"]::before { content: "◈"; }
 body.console-page .nav a:hover,
 body.console-page .nav a.active {
   color: var(--ink) !important;

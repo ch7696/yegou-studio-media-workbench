@@ -4,7 +4,6 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANAGED_DIR="/home/administrator/ragflow-managed"
 STATE_DIR="$MANAGED_DIR/state/speaker-webui"
-MODEL_DIR="/home/administrator/models/Fun-CosyVoice3-0.5B"
 ASR_MODEL_NAME="${ASR_MODEL_NAME:-Qwen3-ASR-1.7B}"
 ASR_DIR="${ASR_DIR:-/home/administrator/models/${ASR_MODEL_NAME}}"
 ASR_CONTAINER_DIR="/models/${ASR_MODEL_NAME}"
@@ -32,6 +31,19 @@ SUBTITLE_FONT_NAME="${SUBTITLE_FONT_NAME:-SimHei}"
 SUBTITLE_FONT_DIR="${SUBTITLE_FONT_DIR:-/mnt/c/Windows/Fonts}"
 
 mkdir -p "$STATE_DIR" "$CACHE_DIR"
+
+# 模型目录统一走父挂载：模型页新增 TTS 权重/模型时无需再改本脚本。
+MODEL_ROOT="${MODEL_ROOT:-/home/administrator/models}"
+MOUNTS=(
+  -v "$MODEL_ROOT:/models:ro"
+  -v "$DIAR_DIR:/opt/3D-Speaker:ro"
+  -v "$COSY_DIR:/opt/CosyVoice:ro"
+  -v /mnt:/mnt
+)
+# 兼容把 ASR 模型目录指到父目录之外的用法。
+if [[ "$ASR_DIR" != "$MODEL_ROOT"/* ]]; then
+  MOUNTS+=(-v "$ASR_DIR:$ASR_CONTAINER_DIR:ro")
+fi
 
 ASR_MODEL_NAME="$ASR_MODEL_NAME" ASR_MODEL_DIR="$ASR_DIR" bash "$PROJECT_DIR/scripts/run_asr_api.sh"
 
@@ -75,12 +87,6 @@ exec docker run -d \
   -v "$PROJECT_DIR:/app:ro" \
   -v "$STATE_DIR:/state" \
   -v "$CACHE_DIR:/root/.cache" \
-  -v "$MODEL_DIR:/models/Fun-CosyVoice3-0.5B:ro" \
-  -v "$ASR_DIR:$ASR_CONTAINER_DIR:ro" \
-  -v "$ALIGNER_DIR:/models/Qwen3-ForcedAligner-0.6B:ro" \
-  -v "$DIAR_DIR:/opt/3D-Speaker:ro" \
-  -v "$SORTFORMER_MODEL_DIR:/models/diar_streaming_sortformer_4spk-v2.1:ro" \
-  -v "$COSY_DIR:/opt/CosyVoice:ro" \
-  -v /mnt:/mnt \
+  "${MOUNTS[@]}" \
   --entrypoint python3 "$IMAGE" \
   -m app.main --host 0.0.0.0 --port 7865

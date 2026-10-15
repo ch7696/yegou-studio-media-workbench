@@ -9,11 +9,14 @@ from typing import Any, Iterator
 import torch
 import torchaudio
 
+from . import models
 from .config import COSYVOICE_REPO, MODEL_DIR
 
 
 TTS_MODEL: Any = None
 TTS_LOCK = threading.Lock()
+# 已加载实例当前应用的变体 id（未加载时为 None；与 TTS_MODEL 同生命周期）。
+TTS_VARIANT_ID: str | None = None
 
 # CosyVoice3's official examples use this English prefix and then put the
 # actual expression request after it.  Keeping one default across the direct,
@@ -106,8 +109,23 @@ def normalize_symbol_reading(text: str) -> str:
     return "".join(output)
 
 
+def _apply_variant(model: Any, variant: dict[str, Any]) -> None:
+    """把变体权重原地加载进已初始化的 CosyVoice3 实例。
+
+    ``AutoModel`` 只会按官方默认加载 ``llm.pt``；RL 等变体需要在初始化后显式
+    覆盖 LLM 权重。``CosyVoice3Model.load(llm, flow, hift)`` 支持在活实例上
+    重新 ``load_state_dict``，因此无需卸载整个模型。
+    """
+
+    llm_path = models.variant_llm_path(variant)
+    if not llm_path.is_file():
+        raise FileNotFoundError(f"变体权重不存在：{llm_path}")
+    print(f"加载 TTS 变体权重：{llm_path}", flush=True)
+    model.model.load(str(llm_path), f"{MODEL_DIR}/flow.pt", f"{MODEL_DIR}/hift.pt")
+
+
 def get_tts() -> Any:
-    global TTS_MODEL
+    global TTS_MODEL, TTS_VARIANT_ID
     if TTS_MODEL is None:
         if COSYVOICE_REPO not in sys.path:
             sys.path.insert(0, COSYVOICE_REPO)
@@ -116,14 +134,65 @@ def get_tts() -> Any:
             sys.path.insert(0, matcha)
         from cosyvoice.cli.cosyvoice import AutoModel
 
-        print(f"加载 CosyVoice3：{MODEL_DIR}", flush=True)
+        variant = models.get_tts_variant(models.active_tts_variant_id())
+        if variant is None:
+            variant = dict(models.TTS_VARIANTS[0])
+        print(f"加载 CosyVoice3：{MODEL_DIR}（变体：{variant['label']}）", flush=True)
         # Follow the official CosyVoice3 example.  The previous fp16 override
         # was an assumption made for VRAM usage, but it is not the official
         # default and can make this model unstable on some CUDA/container
         # combinations.  The 0.5B model fits the user's 16 GB card at the
         # official default precision.
         TTS_MODEL = AutoModel(model_dir=MODEL_DIR)
+        # AutoModel 已加载 llm.pt；非基础变体在此覆盖 LLM 权重。
+        if str(variant.get("llm") or "llm.pt") != "llm.pt":
+            _apply_variant(TTS_MODEL, variant)
+        TTS_VARIANT_ID = str(variant["id"])
     return TTS_MODEL
+
+
+def active_model_label() -> str:
+    """当前（或已保存的）TTS 主模型显示名，供 health / 清单记录使用。"""
+
+    variant = models.get_tts_variant(TTS_VARIANT_ID or models.active_tts_variant_id())
+    if variant is None:
+        variant = dict(models.TTS_VARIANTS[0])
+    return str(variant["label"])
+
+
+def switch_variant(variant_id: str) -> dict[str, Any]:
+    """切换 TTS 主模型变体；已加载时原地覆盖权重，失败自动回滚。
+
+    调用方必须持有 ``TTS_LOCK``（所有合成路径在同一把锁下串行）。
+    """
+
+    global TTS_VARIANT_ID
+    variant = models.get_tts_variant(variant_id)
+    if variant is None:
+        raise ValueError(f"未知的 TTS 变体：{variant_id}")
+    if not models.variant_is_available(variant):
+        raise FileNotFoundError(f"变体权重不存在：{models.variant_llm_path(variant)}")
+
+    previous_id = TTS_VARIANT_ID or models.active_tts_variant_id()
+    if TTS_MODEL is not None and previous_id != variant_id:
+        try:
+            _apply_variant(TTS_MODEL, variant)
+        except Exception:
+            # 原地回滚到旧变体，保证服务保持可用。
+            previous = models.get_tts_variant(previous_id)
+            if previous is not None:
+                try:
+                    _apply_variant(TTS_MODEL, previous)
+                except Exception:
+                    pass
+            raise
+    TTS_VARIANT_ID = str(variant["id"])
+    models.save_settings({"tts_variant": str(variant["id"])})
+    return {
+        "variant": variant,
+        "previous": previous_id,
+        "loaded": TTS_MODEL is not None,
+    }
 
 
 def prompt_marker(reference_text: str, instruction: str = DEFAULT_PROMPT_INSTRUCTION) -> str:
@@ -304,7 +373,8 @@ def apply_gain(audio: torch.Tensor, gain_db: float, *, peak_limit: float = 0.97)
 
 
 def unload_tts() -> None:
-    global TTS_MODEL
+    global TTS_MODEL, TTS_VARIANT_ID
+    TTS_VARIANT_ID = None
     if TTS_MODEL is not None:
         del TTS_MODEL
         TTS_MODEL = None
