@@ -7,7 +7,8 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
   source "$REPO_ROOT/.env"
   set +a
 fi
-MODEL_ROOT_VALUE="${MODEL_ROOT:-${REPO_ROOT}/../models}"
+# 合并进 voice-asset-workbench 后默认指向 WSL 共享模型目录（原 ../models 的相对布局已不存在）。
+MODEL_ROOT_VALUE="${MODEL_ROOT:-/home/administrator/models}"
 
 link_model() {
   local model_name="$1"
