@@ -32,7 +32,10 @@ UPLOAD_DIR = WEBUI_STATE / "uploads"
 JOB_STATE_DIR = WEBUI_STATE / "jobs"
 DEFAULT_OUTPUT_ROOT = Path(os.environ.get("MEDIA_OUTPUT_ROOT", str(REPO_ROOT / "outputs")))
 MINICPM_CONTAINER = os.environ.get("MINICPM_CONTAINER", "vision-minicpm")
+MINICPM_PORT = os.environ.get("MINICPM_PORT", "8002")
 MODEL_START_SCRIPT = REPO_ROOT / "scripts" / "run_model.sh"
+MODEL_REGISTRY_PATH = REPO_ROOT / "config" / "models.json"
+SETTINGS_PATH = WEBUI_STATE / "settings.json"
 ASR_IMAGE = os.environ.get("ASR_IMAGE", "ragflow-qwen-asr:0.0.6")
 MEDIA_TOOL_IMAGE = os.environ.get(
     "MEDIA_TOOL_IMAGE",
@@ -153,6 +156,110 @@ def model_restart_snapshot() -> dict[str, object]:
         return value
 
 
+# ---- 视觉主模型注册表（config/models.json，模型页可切换）----
+LEGACY_VISION_ENTRY = {
+    "id": "minicpm-v-4_5-gptq",
+    "display_name": "MiniCPM-V-4.5-GPTQ",
+    "model_link": "models/MiniCPM-V-4_5-GPTQ",
+    "served_name": "MiniCPM-V-4_5-GPTQ",
+    "notes": "逐秒高清帧 + 20 秒联系图（内置默认条目）",
+    "vllm_args": {"max_model_len": 32768, "gpu_memory_utilization": 0.90, "max_images": 8},
+    "extra_args": ["--trust-remote-code"],
+}
+
+
+def load_webui_settings() -> dict[str, object]:
+    try:
+        if SETTINGS_PATH.exists():
+            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def save_webui_settings(values: dict[str, object]) -> dict[str, object]:
+    data = load_webui_settings()
+    data.update(values)
+    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_PATH.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return data
+
+
+def load_model_registry() -> dict[str, object]:
+    try:
+        data = json.loads(MODEL_REGISTRY_PATH.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("models"), list) and data["models"]:
+            return data
+    except Exception:
+        pass
+    return {"default": LEGACY_VISION_ENTRY["id"], "models": [dict(LEGACY_VISION_ENTRY)]}
+
+
+def model_entry_for(model_id: str) -> dict[str, object] | None:
+    for entry in load_model_registry().get("models", []):
+        if str(entry.get("id")) == model_id:
+            return dict(entry)
+    return None
+
+
+def active_visual_model_id() -> str:
+    registry = load_model_registry()
+    saved = str(load_webui_settings().get("active_model_id") or "")
+    if saved and model_entry_for(saved) is not None:
+        return saved
+    return str(registry.get("default") or "")
+
+
+def model_dir_for(entry: dict[str, object]) -> Path:
+    link = str(entry.get("model_link") or "")
+    model_root = Path(os.environ.get("MODEL_ROOT", str(REPO_ROOT / "models")))
+    if link:
+        candidate = (REPO_ROOT / link).resolve()
+        if candidate.is_dir():
+            return candidate
+        return model_root / Path(link).name
+    return model_root
+
+
+def model_available(entry: dict[str, object]) -> bool:
+    return model_dir_for(entry).is_dir()
+
+
+def visual_env() -> dict[str, str]:
+    """当前视觉主模型对应的子进程环境变量（pipeline 在 import 时读取）。"""
+
+    entry = model_entry_for(active_visual_model_id()) or dict(LEGACY_VISION_ENTRY)
+    return {
+        "MODEL_ID": str(entry.get("id") or ""),
+        "MINICPM_MODEL": str(entry.get("served_name") or entry.get("display_name") or ""),
+        "MINICPM_URL": f"http://127.0.0.1:{MINICPM_PORT}/v1/chat/completions",
+    }
+
+
+def model_registry_snapshot() -> dict[str, object]:
+    registry = load_model_registry()
+    active_id = active_visual_model_id()
+    models: list[dict[str, object]] = []
+    for entry in registry.get("models", []):
+        item = dict(entry)
+        available = model_available(entry)
+        item["available"] = available
+        item["active"] = str(entry.get("id")) == active_id
+        item["model_dir"] = str(model_dir_for(entry)) if available else ""
+        models.append(item)
+    return {
+        "default": registry.get("default"),
+        "active_id": active_id,
+        "port": MINICPM_PORT,
+        "models": models,
+    }
+
+
 def _append_model_restart_log(message: str) -> None:
     stamp = datetime.now().strftime("%H:%M:%S")
     with MODEL_RESTART_LOCK:
@@ -213,6 +320,7 @@ def _model_restart_worker() -> None:
         process = subprocess.Popen(
             ["bash", str(MODEL_START_SCRIPT)],
             cwd=str(REPO_ROOT),
+            env={**os.environ, **visual_env()},
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -1058,6 +1166,20 @@ HTML = """<!doctype html>
     .model-service-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 0; border-top: 1px solid #d2dee5; color: #718794; font-size: 13px; }
     .model-service-row strong { color: #456476; font-size: 14px; font-weight: 650; text-align: right; }
     .model-service-card p { margin: 18px 0 0; padding-top: 15px; border-top: 1px solid #d2dee5; color: #718794; font-size: 13px; line-height: 1.7; }
+    .model-registry { display: grid; gap: 10px; margin-top: 14px; }
+    .model-registry-hint { margin: 0; color: #718794; font-size: 12px; }
+    .model-registry-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid #c7d6de; border-radius: 3px; background: #eef4f7; }
+    .model-registry-item.is-active { border-color: #e0b28c; background: #fbf1e7; }
+    .model-registry-copy { min-width: 0; }
+    .model-registry-copy strong { display: block; color: #38576a; font: 650 13px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .model-registry-copy span { display: block; margin-top: 3px; color: #718794; font-size: 11px; }
+    .model-registry-meta { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+    .model-registry-badge { padding: 3px 8px; border: 1px solid #b9cfd8; border-radius: 99px; background: #e8f1f4; color: #4e7c92; font-size: 11px; white-space: nowrap; }
+    .model-registry-badge.active { border-color: #e0b28c; background: #fbe9d8; color: #b06a2c; }
+    .model-registry-badge.missing { border-color: #d8b3ab; background: #f9ece9; color: #a55b49; }
+    .model-registry button { padding: 7px 12px; border: 1px solid #91b5c6; border-radius: 3px; background: #e6f1f5; color: #2f6a86; font: 650 12px system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; cursor: pointer; }
+    .model-registry button:hover { background: #d8ebf2; }
+    .model-registry button:disabled { cursor: not-allowed; opacity: .55; }
     .studio-footer { color: #7f949f !important; font-size: 12px !important; }
     .studio-footer span:last-child { color: #718794 !important; font-family: var(--ui-font) !important; }
     @media (max-width: 920px) { .model-page-grid { grid-template-columns: 1fr; } }
@@ -1334,7 +1456,7 @@ HTML = """<!doctype html>
           <div class="model-stack">
             <div class="model-row">
               <span class="model-mark">V</span>
-              <div class="model-info"><small>视觉理解 · 导演拉片</small><strong>MiniCPM-V-4.5-GPTQ</strong><em>逐秒高清帧 + 20 秒上下文</em></div>
+              <div class="model-info"><small>视觉理解 · 导演拉片（主模型）</small><strong id="active-visual-model">读取中…</strong><em id="active-visual-note">按任务需要启动</em></div>
             </div>
             <div class="model-row">
               <span class="model-mark audio">A</span>
@@ -1345,13 +1467,14 @@ HTML = """<!doctype html>
               <div class="model-info"><small>时间对齐 · ForcedAligner</small><strong>Qwen3-ForcedAligner-0.6B</strong><em>词级时间戳与字幕轨</em></div>
             </div>
           </div>
+          <div id="model-registry-list" class="model-registry"><p class="model-registry-hint">正在读取模型列表…</p></div>
           <div id="gpu-note" class="gpu-note">模型按 ASR → 视觉 → 整理顺序切换，尽量避免多个大模型同时占用显存。</div>
         </section>
         <section class="card model-service-card">
           <div class="section-label">服务状态</div>
           <h3>视觉模型服务</h3>
-          <div class="model-service-row"><span>接口</span><strong>本地 vLLM · 8002</strong></div>
-          <div class="model-service-row"><span>上下文</span><strong>32K</strong></div>
+          <div class="model-service-row"><span>接口</span><strong id="vision-endpoint">本地 vLLM · 8002</strong></div>
+          <div class="model-service-row"><span>上下文</span><strong id="vision-context">32K</strong></div>
           <div class="model-service-row"><span>采样策略</span><strong>1 秒一帧 · 20 秒联系图</strong></div>
           <p>模型按任务需要启动；分析完成后可从顶部释放显存。</p>
         </section>
@@ -1670,6 +1793,7 @@ HTML = """<!doctype html>
       workbenchView.hidden = true;
       modelView.hidden = false;
       setSidebarActive("models");
+      refreshModelState();
       if (updateUrl) history.pushState(null, "", "#models");
       window.scrollTo({ top: 0, behavior: "auto" });
     }
@@ -2094,11 +2218,70 @@ HTML = """<!doctype html>
       modelPollTimer = setTimeout(refreshModelState, delay || 1000);
     }
 
+    function registryEsc(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, function(ch) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[ch]; }); }
+
+    function renderModelRegistry(state) {
+      const list = document.getElementById("model-registry-list");
+      if (!list) return;
+      const registry = state.registry || {};
+      const models = registry.models || [];
+      const endpoint = document.getElementById("vision-endpoint");
+      const context = document.getElementById("vision-context");
+      const activeStrong = document.getElementById("active-visual-model");
+      const activeNote = document.getElementById("active-visual-note");
+      const activeEntry = models.find(function(item) { return item.active; }) || null;
+      if (activeStrong && activeEntry) activeStrong.textContent = activeEntry.display_name || activeEntry.id;
+      if (activeNote && activeEntry) activeNote.textContent = activeEntry.notes || activeEntry.size_note || "";
+      if (endpoint) endpoint.textContent = "本地 vLLM · " + (registry.port || "8002");
+      if (context && activeEntry && activeEntry.vllm_args) context.textContent = Math.round(activeEntry.vllm_args.max_model_len / 1024) + "K";
+      if (!models.length) {
+        list.innerHTML = '<p class="model-registry-hint">未找到模型注册表（config/models.json）。</p>';
+        return;
+      }
+      const busyNow = state.status === "starting" || state.status === "releasing";
+      list.innerHTML = models.map(function(item) {
+        const badges = (item.active ? '<span class="model-registry-badge active">当前</span>' : "")
+          + (item.available ? "" : '<span class="model-registry-badge missing">未下载</span>');
+        const disabled = item.active || !item.available || busyNow;
+        const buttonText = item.active ? "使用中" : (item.available ? "切换到此模型" : "未下载");
+        return '<div class="model-registry-item' + (item.active ? " is-active" : "") + '">'
+          + '<div class="model-registry-copy"><strong>' + registryEsc(item.display_name || item.id) + '</strong>'
+          + '<span>' + registryEsc(item.notes || item.size_note || "") + '</span></div>'
+          + '<div class="model-registry-meta">' + badges
+          + '<button type="button" data-model-id="' + registryEsc(item.id) + '"'
+          + (disabled ? " disabled" : "") + '>' + buttonText + '</button></div>'
+          + "</div>";
+      }).join("");
+      list.querySelectorAll("button[data-model-id]").forEach(function(button) {
+        button.addEventListener("click", function() { switchVisualModel(button.dataset.modelId); });
+      });
+    }
+
+    async function switchVisualModel(modelId) {
+      if (!window.confirm("将停止当前视觉模型并按其权重重新启动 vLLM，可能需要几分钟。继续吗？")) return;
+      modelControlStatus.textContent = "正在切换视觉主模型…";
+      try {
+        const response = await fetch("/api/models/switch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: modelId }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "切换失败");
+        updateModelControl({ status: "running", phase: "等待视觉模型", logs: [] }, payload);
+        scheduleModelStatePoll(500);
+      } catch (error) {
+        window.alert("切换视觉主模型失败：" + String(error));
+        refreshModelState();
+      }
+    }
+
     async function refreshModelState() {
       try {
         const response = await fetch("/api/model");
         const state = await response.json();
         updateVramButton(state);
+        renderModelRegistry(state);
         if (state.status === "starting" || state.status === "releasing") scheduleModelStatePoll(1000);
         else modelPollTimer = null;
       } catch (_error) {
@@ -3108,6 +3291,8 @@ def _run_job(
     command.append("--release-gpu-after" if release_gpu_after else "--keep-gpu-after")
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    # 视觉主模型按当前选择注入：pipeline 子进程在 import 时读取这些环境变量。
+    env.update(visual_env())
     try:
         process = subprocess.Popen(
             command,
@@ -3470,7 +3655,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(logo.read_bytes(), "image/png")
             return
         if parsed.path == "/api/model":
-            self.send_json(model_restart_snapshot())
+            self.send_json({**model_restart_snapshot(), "registry": model_registry_snapshot()})
             return
         if parsed.path == "/api/queue":
             with JOBS_LOCK:
@@ -3586,6 +3771,58 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(start_model_restart(), 202)
             except RuntimeError as exc:
                 self.send_json({"error": str(exc), "model_restart": model_restart_snapshot()}, 409)
+            return
+        if parsed.path == "/api/models/switch":
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                if content_length <= 0 or content_length > 2 * 1024 * 1024:
+                    raise ValueError("切换请求无效")
+                payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+                model_id = str(payload.get("id") or "") if isinstance(payload, dict) else ""
+                entry = model_entry_for(model_id)
+                if entry is None:
+                    self.send_json({"error": "未知的模型条目", "registry": model_registry_snapshot()}, 400)
+                    return
+                if not model_available(entry):
+                    self.send_json(
+                        {
+                            "error": f"该模型尚未下载：{entry.get('display_name') or model_id}。请先运行 scripts/fetch_model.sh",
+                            "registry": model_registry_snapshot(),
+                        },
+                        409,
+                    )
+                    return
+                with JOBS_LOCK:
+                    active_jobs = [dict(job) for job in JOBS.values() if job.get("status") == "running"]
+                if active_jobs or ANALYSIS_LOCK.locked():
+                    self.send_json(
+                        {"error": "当前有分析任务正在执行，请等任务完成后再切换模型。", "registry": model_registry_snapshot()},
+                        409,
+                    )
+                    return
+                with MODEL_RESTART_LOCK:
+                    restarting = MODEL_RESTART_THREAD is not None and MODEL_RESTART_THREAD.is_alive()
+                if restarting:
+                    self.send_json(
+                        {"error": "视觉模型正在启动或释放中，请稍候再切换。", "registry": model_registry_snapshot()},
+                        409,
+                    )
+                    return
+                previous_id = active_visual_model_id()
+                save_webui_settings({"active_model_id": model_id})
+                _append_model_restart_log(f"视觉主模型已切换为：{entry.get('display_name') or model_id}")
+                try:
+                    result = start_model_restart()
+                except RuntimeError as exc:
+                    save_webui_settings({"active_model_id": previous_id})
+                    self.send_json({"error": str(exc), "registry": model_registry_snapshot()}, 409)
+                    return
+                self.send_json(
+                    {**result, "active_model_id": model_id, "registry": model_registry_snapshot()},
+                    202,
+                )
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, 400)
             return
         reorder_match = re.fullmatch(r"/api/batches/([^/]+)/reorder", parsed.path)
         if reorder_match:

@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent
 MODEL_DIR = Path(os.environ.get("MODEL_ROOT", str(ROOT / "models")))
 ASR_IMAGE = os.environ.get("ASR_IMAGE", "ragflow-qwen-asr:0.0.6")
 MINICPM_CONTAINER = os.environ.get("MINICPM_CONTAINER", "vision-minicpm")
+VISUAL_MODEL_NAME = os.environ.get("MINICPM_MODEL", "MiniCPM-V-4_5-GPTQ")
 ASR_CONTAINER = os.environ.get("ASR_CONTAINER", "vision-asr")
 ASR_MAX_NEW_TOKENS = os.environ.get("ASR_MAX_NEW_TOKENS", "2048")
 ASR_LANGUAGE = os.environ.get("ASR_LANGUAGE", "").strip()
@@ -484,7 +485,7 @@ def package_documents(output: Path, source: Path, final_source: Path | None) -> 
         },
         "documents": [path.name for path in paths],
         "models": {
-            "visual": "MiniCPM-V-4_5-GPTQ",
+            "visual": VISUAL_MODEL_NAME,
             "asr": "Qwen3-ASR-0.6B",
             "forced_aligner": "Qwen3-ForcedAligner-0.6B",
         },
