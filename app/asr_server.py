@@ -24,6 +24,15 @@ TEMP_ROOT.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title="Qwen3-ASR isolated service")
 
 
+def _model_language(language: str | None) -> str | None:
+    """Use Qwen3-ASR's automatic language detection when requested."""
+
+    value = str(language or "").strip()
+    if value.lower() in {"auto", "automatic", "自动", "自动识别", "中英文"}:
+        return None
+    return value or "Chinese"
+
+
 def get_model() -> Any:
     global MODEL, TIMESTAMPS_SUPPORTED, ALIGNER_ERROR
     if MODEL is None:
@@ -126,7 +135,7 @@ async def transcribe(
                 raise RuntimeError(ALIGNER_ERROR or "ForcedAligner 不可用，无法返回时间戳")
             results = model.transcribe(
                 audio=str(target),
-                language=language or "Chinese",
+                language=_model_language(language),
                 return_time_stamps=return_time_stamps,
             )
         item = results[0] if isinstance(results, (list, tuple)) else results

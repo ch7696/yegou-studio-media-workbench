@@ -18,7 +18,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 import torch
 
-from . import asr, dubbing, separation, timeline_dubbing, tts
+from . import asr, dubbing, environment, separation, subtitles, timeline_dubbing, tts
 from .asr import transcribe
 from .assets import save_card
 from .audio import fit_audio
@@ -30,16 +30,23 @@ from .config import (
     DIRECT_TTS_WORK,
     DUBBING_UPLOADS,
     DUBBING_WORK,
+    ENVIRONMENT_UPLOADS,
     GITHUB_REPOSITORY_URL,
     MANIFESTS,
     RESULTS,
+    SUBTITLE_UPLOADS,
     UPLOADS,
     ensure_directories,
 )
 from .diarization import backend_status
 from .identification import analyze_file
 from .reference import prepare_reference
-from .schemas import DubbingGenerateRequest, DubbingTimelineSaveRequest, TTSGenerateRequest
+from .schemas import (
+    DubbingGenerateRequest,
+    DubbingTimelineSaveRequest,
+    SubtitleSaveRequest,
+    TTSGenerateRequest,
+)
 from .timeline import parse_timeline
 from .utils import digest, load_manifest, probe, safe_name, save_json, to_windows_path, to_wsl_path
 
@@ -93,6 +100,11 @@ def raw_analysis_page() -> str:
     return Path("/app/web/analysis.html").read_text(encoding="utf-8")
 
 
+@app.get("/subtitles", response_class=HTMLResponse)
+def subtitle_page() -> str:
+    return Path("/app/web/subtitles.html").read_text(encoding="utf-8")
+
+
 @app.get("/studio", response_class=HTMLResponse)
 def dubbing_studio_page() -> str:
     return Path("/app/web/studio.html").read_text(encoding="utf-8")
@@ -101,6 +113,11 @@ def dubbing_studio_page() -> str:
 @app.get("/timeline", response_class=HTMLResponse)
 def timeline_dubbing_page() -> str:
     return Path("/app/web/timeline.html").read_text(encoding="utf-8")
+
+
+@app.get("/environment", response_class=HTMLResponse)
+def environment_page() -> str:
+    return Path("/app/web/environment.html").read_text(encoding="utf-8")
 
 
 @app.get("/studio.js")
@@ -294,6 +311,35 @@ async def start_dubbing_analysis(
         raise HTTPException(status_code=500, detail=f"全片时间轴任务创建失败：{exc}") from exc
 
 
+@app.post("/api/subtitles/jobs", status_code=202)
+async def start_subtitle_job(
+    media: UploadFile = File(...),
+    output_dir: str = Form(""),
+    language: str = Form("auto"),
+    chunk_seconds: float = Form(240.0),
+) -> dict[str, Any]:
+    """Queue direct ASR subtitle recognition without diarization."""
+
+    original = safe_name(media.filename or "未命名音视频", 120)
+    suffix = Path(original).suffix.lower() or ".bin"
+    upload_id = uuid.uuid4().hex
+    source = SUBTITLE_UPLOADS / f"{upload_id}{suffix}"
+    await _save_upload(media, source)
+    try:
+        probe(source)
+        return subtitles.start_job(
+            source,
+            original_filename=original,
+            output_dir=output_dir or str(DEFAULT_OUTPUT),
+            language=str(language or "auto"),
+            chunk_seconds=max(30.0, min(300.0, float(chunk_seconds or 240.0))),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"字幕任务创建失败：{exc}") from exc
+
+
 def _dubbing_job_response(job: dict[str, Any]) -> dict[str, Any]:
     """Add browser URLs for completed job files without changing the manifest."""
 
@@ -341,6 +387,87 @@ def dubbing_job(job_id: str) -> dict[str, Any]:
         return _dubbing_job_response(dubbing.get_job(job_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _subtitle_job_response(job: dict[str, Any]) -> dict[str, Any]:
+    response = dict(job)
+    output_root = Path(str(response.get("output_path", "")))
+    known_files = {
+        "srt": Path("字幕.srt"),
+        "vtt": Path("字幕.vtt"),
+        "json": Path("字幕.json"),
+        "text": Path("字幕文本.txt"),
+        "ass": Path("字幕.ass"),
+        "video": Path("带字幕视频.mp4"),
+    }
+    files: dict[str, str] = {}
+    if output_root.exists():
+        for key, relative in known_files.items():
+            # A render writes to a temporary MP4 and atomically replaces the
+            # final file.  Do not expose a stale or half-written video link.
+            if key == "video" and response.get("render_status") != "done":
+                continue
+            if (output_root / relative).is_file():
+                files[key] = (
+                    f"/api/subtitles/jobs/{response.get('job_id')}/files/"
+                    f"{quote(relative.as_posix(), safe='/')}"
+                )
+    if files:
+        response["subtitle_files"] = files
+    return response
+
+
+@app.get("/api/subtitles/jobs/{job_id}")
+def subtitle_job(job_id: str) -> dict[str, Any]:
+    try:
+        return _subtitle_job_response(subtitles.get_job(job_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/subtitles/jobs/{job_id}/timeline")
+def subtitle_timeline(job_id: str) -> dict[str, Any]:
+    try:
+        return subtitles.get_timeline(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/subtitles/jobs/{job_id}/save")
+def save_subtitle_edits(job_id: str, request: SubtitleSaveRequest) -> dict[str, Any]:
+    try:
+        cues = [item.model_dump() if hasattr(item, "model_dump") else item.dict() for item in request.cues]
+        result = subtitles.save_edits(job_id, cues)
+        result["job"] = _subtitle_job_response(subtitles.get_job(job_id))
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"字幕保存失败：{exc}") from exc
+
+
+@app.post("/api/subtitles/jobs/{job_id}/render", status_code=202)
+def render_subtitle_video(job_id: str, request: SubtitleSaveRequest) -> dict[str, Any]:
+    """Queue an FFmpeg hard-subtitle render using the editor's current cues."""
+
+    try:
+        cues = [item.model_dump() if hasattr(item, "model_dump") else item.dict() for item in request.cues]
+        return _subtitle_job_response(subtitles.start_render(job_id, cues))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"带字幕视频任务创建失败：{exc}") from exc
+
+
+@app.get("/api/subtitles/jobs/{job_id}/files/{name:path}")
+def subtitle_file(job_id: str, name: str) -> FileResponse:
+    try:
+        path = subtitles.file_for_job(job_id, name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    disposition = "inline" if path.suffix.lower() in {".mp4", ".webm", ".mov", ".mkv"} else "attachment"
+    return FileResponse(path, media_type=media_type, filename=path.name, content_disposition_type=disposition)
 
 
 @app.get("/api/dubbing/jobs/{job_id}/timeline")
@@ -455,6 +582,63 @@ def dubbing_file(job_id: str, name: str) -> FileResponse:
     return FileResponse(path, media_type=media_type, filename=path.name)
 
 
+@app.post("/api/environment/jobs", status_code=202)
+async def start_environment_job(
+    media: UploadFile = File(...),
+    output_dir: str = Form(""),
+    noise_reduction: float = Form(8.0),
+    background_gain: float = Form(1.0),
+) -> dict[str, Any]:
+    """Queue a two-stem separation and export a video with environment audio only."""
+
+    original = safe_name(media.filename or "未命名视频", 120)
+    suffix = Path(original).suffix.lower() or ".mp4"
+    job_id = uuid.uuid4().hex[:12]
+    source = ENVIRONMENT_UPLOADS / f"{job_id}{suffix}"
+    await _save_upload(media, source)
+    try:
+        info = probe(source)
+        if not any(stream.get("codec_type") == "video" for stream in info.get("streams", [])):
+            raise ValueError("请上传包含视频画面的文件")
+        noise_value = max(0.0, min(30.0, float(noise_reduction)))
+        gain_value = max(0.0, min(2.0, float(background_gain)))
+        return _environment_job_response(
+            environment.start_job(
+                job_id=job_id,
+                source=source,
+                original_filename=original,
+                output_dir=output_dir or str(DEFAULT_OUTPUT),
+                noise_reduction=noise_value,
+                background_gain=gain_value,
+            )
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"环境音任务创建失败：{exc}") from exc
+
+
+@app.get("/api/environment/jobs/{job_id}")
+def environment_job(job_id: str) -> dict[str, Any]:
+    try:
+        return _environment_job_response(environment.get_job(job_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/environment/jobs/{job_id}/files/{name:path}")
+def environment_file(job_id: str, name: str) -> FileResponse:
+    try:
+        path = environment.file_for_job(job_id, name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    disposition = "inline" if path.suffix.lower() in {".mp4", ".webm", ".mov", ".mkv", ".wav"} else "attachment"
+    return FileResponse(path, media_type=media_type, filename=path.name, content_disposition_type=disposition)
+
+
 async def _save_upload(upload: UploadFile, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("wb") as stream:
@@ -478,7 +662,7 @@ def _timeline_job_response(job: dict[str, Any]) -> dict[str, Any]:
     if response.get("timeline_path"):
         values["timeline"] = response["timeline_path"]
     urls: dict[str, str] = {}
-    for key in ("reference_audio", "voice_track", "video", "timeline"):
+    for key in ("reference_audio", "voice_track", "mix_track", "environment_audio", "video", "timeline"):
         value = values.get(key)
         if not value:
             continue
@@ -489,6 +673,31 @@ def _timeline_job_response(job: dict[str, Any]) -> dict[str, Any]:
         urls[key] = f"/api/timeline/jobs/{response['job_id']}/files/{relative.as_posix()}"
     if urls:
         response["generation_urls"] = urls
+    return response
+
+
+def _environment_job_response(job: dict[str, Any]) -> dict[str, Any]:
+    response = dict(job)
+    output_value = str(response.get("output_path") or "").strip()
+    if not output_value:
+        return response
+    output_root = Path(output_value)
+    known_files = {
+        "video": Path("仅环境音视频.mp4"),
+        "environment_audio": Path("音频") / "背景声.wav",
+        "vocal_audio": Path("音频") / "人声.wav",
+        "clean_audio": Path("音频") / "清洁混合音轨.wav",
+        "manifest": Path("环境音.json"),
+    }
+    files: dict[str, str] = {}
+    for key, relative in known_files.items():
+        if (output_root / relative).is_file():
+            files[key] = (
+                f"/api/environment/jobs/{response.get('job_id')}/files/"
+                f"{quote(relative.as_posix(), safe='/')}"
+            )
+    if files:
+        response["environment_files"] = files
     return response
 
 
@@ -516,8 +725,10 @@ async def start_timeline_dubbing(
     seed: int = Form(0),
     prosody_tags: bool = Form(True),
     export_video: bool = Form(True),
+    keep_environment_audio: bool = Form(True),
+    background_volume: float = Form(1.0),
 ) -> dict[str, Any]:
-    """Queue TTS for an imported SRT/VTT/JSON timeline and a silent video."""
+    """Queue TTS for an imported SRT/VTT/JSON timeline and preserve ambience."""
 
     if mode not in {"zero_shot", "cross_lingual", "instruct2"}:
         raise HTTPException(status_code=400, detail="不支持的 CosyVoice3 模式")
@@ -549,6 +760,7 @@ async def start_timeline_dubbing(
             "speed": float(speed),
             "voice_gain_db": float(voice_gain_db),
             "seed": int(seed),
+            "background_volume": float(background_volume),
         }
         if not 0.5 <= numeric["speed"] <= 2.0:
             raise ValueError("speed 应在 0.5 到 2.0 之间")
@@ -556,6 +768,8 @@ async def start_timeline_dubbing(
             raise ValueError("配音响度增益应在 -12 到 18 dB 之间")
         if not 0 <= numeric["seed"] <= 2_147_483_647:
             raise ValueError("seed 超出范围")
+        if not 0.0 <= numeric["background_volume"] <= 2.0:
+            raise ValueError("环境音比例应在 0 到 2 之间")
         options = {
             **numeric,
             "mode": mode,
@@ -569,6 +783,7 @@ async def start_timeline_dubbing(
             "text_frontend": bool(text_frontend),
             "prosody_tags": bool(prosody_tags),
             "export_video": bool(export_video),
+            "keep_environment_audio": bool(keep_environment_audio),
         }
         job = timeline_dubbing.start_job(
             job_id=job_id,

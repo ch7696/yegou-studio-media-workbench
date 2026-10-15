@@ -56,6 +56,18 @@ DUBBING_STATE = STATE_DIR / "dubbing"
 DUBBING_UPLOADS = DUBBING_STATE / "uploads"
 DUBBING_WORK = DUBBING_STATE / "work"
 DUBBING_JOBS = DUBBING_STATE / "jobs"
+ENVIRONMENT_STATE = STATE_DIR / "environment"
+ENVIRONMENT_UPLOADS = ENVIRONMENT_STATE / "uploads"
+ENVIRONMENT_WORK = ENVIRONMENT_STATE / "work"
+ENVIRONMENT_JOBS = ENVIRONMENT_STATE / "jobs"
+SUBTITLE_STATE = STATE_DIR / "subtitles"
+SUBTITLE_UPLOADS = SUBTITLE_STATE / "uploads"
+SUBTITLE_WORK = SUBTITLE_STATE / "work"
+SUBTITLE_JOBS = SUBTITLE_STATE / "jobs"
+SUBTITLE_CHUNK_SECONDS = float(os.getenv("SUBTITLE_CHUNK_SECONDS", "240"))
+VIDEO_EXPORT_CODEC = os.getenv("VOICE_EXPORT_VIDEO_CODEC", "libx264").strip() or "libx264"
+VIDEO_EXPORT_PRESET = os.getenv("VOICE_EXPORT_VIDEO_PRESET", "veryfast").strip() or "veryfast"
+VIDEO_EXPORT_CRF = os.getenv("VOICE_EXPORT_VIDEO_CRF", "18").strip() or "18"
 
 
 def ensure_directories() -> None:
@@ -70,6 +82,12 @@ def ensure_directories() -> None:
         DUBBING_UPLOADS,
         DUBBING_WORK,
         DUBBING_JOBS,
+        ENVIRONMENT_UPLOADS,
+        ENVIRONMENT_WORK,
+        ENVIRONMENT_JOBS,
+        SUBTITLE_UPLOADS,
+        SUBTITLE_WORK,
+        SUBTITLE_JOBS,
         DEFAULT_OUTPUT,
     ):
         directory.mkdir(parents=True, exist_ok=True)

@@ -104,7 +104,7 @@
       .footer { padding: 0 16px 24px; }
     }
   </style>
-  <link rel="stylesheet" href="/console.css?v=20260912-ui2">
+  <link rel="stylesheet" href="/console.css?v=20260913-ui4">
 </head>
 <body class="console-page home-page">
   <header class="topbar">
@@ -116,8 +116,10 @@
       <div class="top-actions">
         <nav class="nav" aria-label="主导航">
           <a class="active" href="/">主页</a>
-          <a href="/analysis">原始分析</a>
+          <a href="/analysis">访谈分析</a>
+          <a href="/subtitles">自动配字幕</a>
           <a href="/timeline">时间线配音</a>
+          <a href="/environment">环境音分离</a>
           <a href="/studio">角色配音</a>
           <a href="/assets">语音资产</a>
           <a href="/tts">独立试音</a>
@@ -138,31 +140,51 @@
         <div class="page-meta"><strong>输出目录：<span data-default-output>服务器默认目录</span></strong><span>原始素材不会被覆盖</span></div>
       </section>
 
-      <section class="work-grid" aria-label="四个工作入口">
+      <a class="work-card primary interview-card" href="/analysis">
+        <div class="interview-copy">
+          <div class="card-head"><div class="card-index">01 / INTERVIEW</div><span class="card-icon">访</span></div>
+          <h2>访谈分析</h2>
+          <p>面向访谈、咨询和语音记录，提取原始音轨、说话人、逐字时间戳与高密度文本，保留材料本身供后续整理。</p>
+        </div>
+        <div class="interview-detail">
+          <div class="card-flow"><span>导入媒体</span><i>→</i><span>识别说话人</span><i>→</i><span>逐字时间轴</span><i>→</i><span>原始材料</span></div>
+          <div class="card-foot"><span>适合长视频与长音频记录</span><span class="card-open">进入访谈分析&nbsp;→</span></div>
+        </div>
+      </a>
+
+      <section class="work-grid" aria-label="其他工作入口">
         <a class="work-card primary" href="/timeline">
-          <div class="card-head"><div class="card-index">01 / NARRATION</div><span class="card-icon">旁</span></div>
+          <div class="card-head"><div class="card-index">02 / NARRATION</div><span class="card-icon">旁</span></div>
           <h2>时间线配音</h2>
           <p>导入视频、SRT、VTT 或 JSON 时间线，按字幕起止时间逐段生成配音并导出。</p>
           <div class="card-flow"><span>视频</span><i>→</i><span>时间线</span><i>→</i><span>配音视频</span></div>
           <div class="card-foot"><span>当前支持字幕驱动配音</span><span class="card-open">打开流程&nbsp;→</span></div>
         </a>
 
+        <a class="work-card secondary" href="/environment">
+          <div class="card-head"><div class="card-index">03 / AMBIENT</div><span class="card-icon">底</span></div>
+          <h2>环境音分离</h2>
+          <p>从带原声视频中提取环境音和音效，输出可直接用于重配人声的干净底轨。</p>
+          <div class="card-flow"><span>导入视频</span><i>→</i><span>分离环境音</span><i>→</i><span>保留底轨</span></div>
+          <div class="card-foot"><span>适合重配人声前处理</span><span class="card-open">打开流程&nbsp;→</span></div>
+        </a>
+
         <a class="work-card secondary" href="/studio">
-          <div class="card-head"><div class="card-index">02 / CHARACTER</div><span class="card-icon">声</span></div>
+          <div class="card-head"><div class="card-index">04 / CHARACTER</div><span class="card-icon">声</span></div>
           <h2>角色配音</h2>
           <p>识别视频中的说话人，绑定参考音色，替换指定角色的台词并保留背景音效。</p>
           <div class="card-flow"><span>分析音轨</span><i>→</i><span>绑定音色</span><i>→</i><span>替换导出</span></div>
           <div class="card-foot"><span>适合角色台词替换</span><span class="card-open">打开流程&nbsp;→</span></div>
         </a>
         <a class="work-card utility" href="/assets">
-          <div class="card-head"><div class="card-index">03 / ASSETS</div><span class="card-icon">库</span></div>
+          <div class="card-head"><div class="card-index">05 / ASSETS</div><span class="card-icon">库</span></div>
           <h2>语音资产</h2>
           <p>上传音频或视频，识别说话人并整理清洁后的参考音色资产。</p>
           <div class="card-flow"><span>导入媒体</span><i>→</i><span>识别说话人</span><i>→</i><span>保存资产</span></div>
           <div class="card-foot"><span>整理可复用参考音色</span><span class="card-open">打开流程&nbsp;→</span></div>
         </a>
         <a class="work-card utility" href="/tts">
-          <div class="card-head"><div class="card-index">04 / VOICE TEST</div><span class="card-icon">试</span></div>
+          <div class="card-head"><div class="card-index">06 / VOICE TEST</div><span class="card-icon">试</span></div>
           <h2>独立试音</h2>
           <p>直接上传参考音频或视频，按 CosyVoice3 官方模式生成试音。</p>
           <div class="card-flow"><span>参考媒体</span><i>→</i><span>输入文本</span><i>→</i><span>生成试音</span></div>
@@ -170,9 +192,16 @@
         </a>
       </section>
 
-      <a class="analysis-entry" href="/analysis">
-        <div><div class="card-index">05 / RAW ANALYSIS</div><h2>访谈 / 咨询原始分析</h2><p>导入长视频或音频，提取原始音轨、说话人、逐字时间戳和高密度文本，留给后续大模型继续整理。</p></div>
-        <span class="card-open">打开原始分析&nbsp;→</span>
+      <a class="work-card utility subtitle-entry" href="/subtitles">
+        <div class="subtitle-entry-copy">
+          <div class="card-head"><div class="card-index">07 / SUBTITLES</div><span class="card-icon">字</span></div>
+          <h2>自动配字幕</h2>
+          <p>上传视频或音频，识别并编辑时间轴字幕；确认后生成带字幕视频，同时导出字幕文件。</p>
+        </div>
+        <div class="subtitle-entry-detail">
+          <div class="card-flow"><span>导入媒体</span><i>→</i><span>识别字幕</span><i>→</i><span>编辑出片</span></div>
+          <div class="card-foot"><span>视频 + SRT / VTT / JSON</span><span class="card-open">进入字幕工作台&nbsp;→</span></div>
+        </div>
       </a>
 
       <section class="lower-grid">
@@ -181,6 +210,7 @@
           <div class="capability-list">
             <div class="capability-row"><span>媒体输入</span><strong>音频 / 视频</strong></div>
             <div class="capability-row"><span>时间线输入</span><strong>SRT / VTT / JSON</strong></div>
+            <div class="capability-row"><span>环境音处理</span><strong>人声 / 环境音两路</strong></div>
             <div class="capability-row"><span>结果输出</span><strong>音频、视频和参考音色</strong></div>
           </div>
         </div>

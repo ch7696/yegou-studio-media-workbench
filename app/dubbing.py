@@ -25,6 +25,9 @@ from .config import (
     SPEAKER_AMBIGUITY_MARGIN,
     SPEAKER_ASSIGNMENT_STRATEGY,
     SPEAKER_MIN_CONFIDENCE,
+    VIDEO_EXPORT_CODEC,
+    VIDEO_EXPORT_CRF,
+    VIDEO_EXPORT_PRESET,
 )
 from .direct_tts import extract_reference
 from .diarization import run_diarization
@@ -1258,7 +1261,7 @@ def _render_voice_track(items: list[dict[str, Any]], duration_sec: float, target
 
 def _read_track(path: Path | None, sample_count: int) -> np.ndarray:
     track = np.zeros(sample_count, dtype=np.float32)
-    if path is None or not path.exists():
+    if path is None or not path.is_file():
         return track
     data, rate = sf.read(str(path), dtype="float32", always_2d=False)
     if getattr(data, "ndim", 1) > 1:
@@ -1344,7 +1347,7 @@ def _render_mixed_track(
     )
     for item in generated:
         data = _read_track(Path(item["audio_path"]), sample_count)
-        start = max(0, int(round(float(item["start_sec"]) * RATE)))
+        start = max(0, int(round(float(item.get("render_start_sec", item["start_sec"])) * RATE)))
         if start >= sample_count:
             continue
         stop = min(sample_count, start + len(data))
@@ -1362,35 +1365,65 @@ def _mux_video(source: Path, voice_track: Path, target: Path) -> Path | None:
         return None
     from .utils import run
 
-    run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            str(source),
-            "-i",
-            str(voice_track),
-            "-map",
-            "0:v:0",
-            "-map",
-            "1:a:0",
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-shortest",
-            "-movflags",
-            "+faststart",
-            str(target),
-        ],
-        900,
-    )
-    return target if target.exists() else None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.stem}.{uuid.uuid4().hex[:8]}.tmp{target.suffix}")
+    video_args = ["-c:v", VIDEO_EXPORT_CODEC]
+    if VIDEO_EXPORT_CODEC.lower() != "copy":
+        # H.264/yuv420p avoids the browser and Windows playback failures that
+        # can occur when a source HEVC or 10-bit stream is copied into MP4.
+        video_args.extend(
+            [
+                "-preset",
+                VIDEO_EXPORT_PRESET,
+                "-crf",
+                VIDEO_EXPORT_CRF,
+                "-pix_fmt",
+                "yuv420p",
+            ]
+        )
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(source),
+        "-i",
+        str(voice_track),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        *video_args,
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-ar",
+        "48000",
+        "-map_metadata",
+        "0",
+        "-shortest",
+        "-movflags",
+        "+faststart",
+        str(temporary),
+    ]
+    try:
+        run(command, 1800)
+        if not temporary.is_file() or temporary.stat().st_size < 1024:
+            raise RuntimeError("FFmpeg 没有生成有效的视频文件")
+        output_info = probe(temporary)
+        streams = output_info.get("streams", [])
+        if not any(item.get("codec_type") == "video" for item in streams):
+            raise RuntimeError("导出文件缺少视频流")
+        if not any(item.get("codec_type") == "audio" for item in streams):
+            raise RuntimeError("导出文件缺少音频流")
+        temporary.replace(target)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return target if target.is_file() else None
 
 
 def start_generation(

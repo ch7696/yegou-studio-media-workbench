@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>环境音分离 · 野构 Studio</title>
+  <link rel="icon" href="/brand-logo.png" type="image/png">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1119;
+      --panel: #121a25;
+      --panel-soft: #0f1722;
+      --line: #26364a;
+      --text: #e7eef7;
+      --muted: #a9b7c8;
+      --blue: #4b91e8;
+      --cyan: #56c9cf;
+      --orange: #ed8b43;
+      --danger: #ff8f7c;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 15% -10%, #243a5b 0, transparent 34rem), var(--bg); color: var(--text); font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+    a { color: inherit; text-decoration: none; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 22px; min-height: 74px; padding: 13px 28px; border-bottom: 1px solid var(--line); background: rgba(10,16,25,.9); }
+    .brand { display: inline-flex; align-items: center; gap: 11px; min-width: 180px; }
+    .brand-logo-wrap { width: 38px; height: 38px; display: grid; place-items: center; overflow: hidden; border: 1px solid #38526f; border-radius: 10px; background: #fff; }
+    .brand-logo { width: 58px; height: 58px; object-fit: cover; }
+    .brand-copy { display: grid; line-height: 1.15; }
+    .brand-copy strong { font-size: 15px; }
+    .brand-copy span { margin-top: 3px; color: var(--muted); font-size: 9px; letter-spacing: .14em; }
+    .nav { display: flex; align-items: center; justify-content: flex-end; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+    .nav a:hover, .nav a.active { color: var(--text); text-decoration: underline; text-decoration-color: var(--orange); text-decoration-thickness: 2px; text-underline-offset: 6px; }
+    main { width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: 34px 0 54px; }
+    .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+    .eyebrow { color: var(--orange); font-size: 10px; font-weight: 800; letter-spacing: .16em; }
+    h1 { margin: 5px 0 7px; font-size: clamp(26px, 4vw, 38px); line-height: 1.18; letter-spacing: -.04em; }
+    h2 { margin: 0; font-size: 18px; }
+    p { margin: 0; color: var(--muted); }
+    .hero-note { max-width: 310px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: rgba(18,26,37,.72); color: var(--muted); font-size: 12px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; align-items: start; }
+    .panel { padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg, rgba(20,29,42,.98), rgba(15,22,32,.98)); box-shadow: 0 14px 35px rgba(0,0,0,.16); }
+    .panel + .panel { margin-top: 18px; }
+    .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+    .panel-head p { margin-top: 4px; font-size: 12px; }
+    .badge { padding: 4px 9px; border: 1px solid #6b4d35; border-radius: 999px; background: rgba(237,139,67,.1); color: #f1b57f; font-size: 11px; white-space: nowrap; }
+    .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; margin-top: 18px; }
+    label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+    label.wide { grid-column: 1 / -1; }
+    input, button { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 8px; background: #0c141f; color: var(--text); font: inherit; padding: 9px 11px; }
+    input[type=file] { padding: 8px; }
+    input:focus { outline: 2px solid rgba(75,145,232,.35); outline-offset: 1px; }
+    .help { color: #8e9fb3; font-size: 11px; }
+    .actions { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
+    button { width: auto; border-color: #397ec9; background: var(--blue); cursor: pointer; font-weight: 750; }
+    button:hover { background: #5ca0ec; }
+    button:disabled { cursor: wait; opacity: .6; }
+    .status { margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-soft); }
+    .status strong, .status span { display: block; }
+    .status strong { font-size: 13px; }
+    .status.error { border-color: #75443b; color: var(--danger); }
+    .progress { height: 7px; margin-top: 12px; overflow: hidden; border-radius: 99px; background: #243246; }
+    .progress i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--orange), var(--cyan)); transition: width .25s; }
+    .result { margin-top: 18px; }
+    .result video { display: block; width: 100%; max-height: 430px; margin-top: 11px; border-radius: 9px; background: #05080d; }
+    audio { width: 100%; margin-top: 9px; }
+    .file-list { display: grid; gap: 8px; margin-top: 14px; }
+    .file-list a { display: flex; justify-content: space-between; gap: 10px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px; color: #9bc7fa; font-size: 12px; }
+    .file-list a:hover { border-color: #427db7; background: #14263b; }
+    .note { padding: 13px; border-left: 3px solid var(--orange); background: rgba(237,139,67,.08); color: #d4c1ae; font-size: 12px; }
+    .steps { display: grid; gap: 12px; margin-top: 16px; }
+    .step { display: grid; grid-template-columns: 27px 1fr; gap: 10px; align-items: start; color: var(--muted); font-size: 12px; }
+    .step b { display: grid; place-items: center; width: 27px; height: 27px; border: 1px solid #375472; border-radius: 7px; background: #14243a; color: var(--cyan); font-size: 11px; }
+    .step strong { display: block; color: var(--text); font-size: 12px; }
+    .footer { margin-top: 20px; color: #77899e; font-size: 11px; }
+    @media (max-width: 860px) { .topbar { align-items: flex-start; flex-direction: column; } .nav { justify-content: flex-start; } .layout { grid-template-columns: 1fr; } .hero { align-items: flex-start; flex-direction: column; } }
+    @media (max-width: 560px) { main { width: min(100% - 26px, 1120px); padding-top: 24px; } .field-grid { grid-template-columns: 1fr; } label.wide { grid-column: auto; } .actions { align-items: stretch; flex-direction: column; } }
+  </style>
+  <link rel="stylesheet" href="/console.css?v=20260913-ui4">
+</head>
+<body class="console-page">
+  <main class="shell">
+    <header class="topbar">
+    <a class="brand" href="/" aria-label="返回野构 Studio">
+      <span class="brand-logo-wrap"><img class="brand-logo" src="/brand-logo.png" alt="野构 Studio"></span>
+      <span class="brand-copy"><strong>野构 Studio</strong><span>ENVIRONMENT AUDIO</span></span>
+    </a>
+    <nav class="nav" aria-label="主导航">
+      <a href="/">主页</a><a href="/analysis">访谈分析</a><a href="/subtitles">自动配字幕</a><a href="/timeline">时间线配音</a><a href="/environment" class="active">环境音分离</a><a href="/studio">角色配音</a><a href="/assets">语音资产</a><a href="/tts">独立试音</a>
+    </nav>
+    </header>
+
+    <section class="hero">
+      <div><div class="eyebrow">AMBIENT STEM / ONE CLICK</div><h1>提取环境音，给人声重配留出干净底轨</h1><p>上传带原声的视频，系统自动分离人声与环境音，并输出只有环境音的视频，供后续 TTS 配音使用。</p></div>
+      <div class="hero-note">最终视频：原画面 + 环境音 / 音效。原始人声不会进入输出音轨。</div>
+    </section>
+
+    <section class="layout">
+      <div>
+        <form id="environment-form" class="panel">
+          <div class="panel-head"><div><h2>1. 导入视频</h2><p>先得到可复用的环境音底轨。</p></div><span class="badge">HDEMUCS 两路分离</span></div>
+          <div class="field-grid">
+            <label class="wide">视频文件
+              <input name="media" type="file" accept="video/*,.mp4,.mov,.mkv,.avi,.webm" required>
+              <span class="help">支持常见视频格式；原文件不会被覆盖。</span>
+            </label>
+            <label>清洁强度
+              <input name="noise_reduction" type="number" min="0" max="30" step="1" value="8">
+              <span class="help">0 表示不做降噪；默认 8，适合一般视频。</span>
+            </label>
+            <label>环境音比例
+              <input name="background_gain" type="number" min="0" max="2" step="0.05" value="1">
+              <span class="help">1.0 保持原分离响度，过小时环境声会变弱。</span>
+            </label>
+            <label class="wide">输出目录
+              <input name="output_dir" placeholder="使用服务器默认目录">
+              <span class="help">结果会保存为项目目录，包含环境音 WAV、人声 WAV 和仅环境音视频。</span>
+            </label>
+          </div>
+          <div class="actions"><button id="submit" type="submit">开始分离并输出环境音视频</button><span class="help">分离阶段会按需加载 HDEMUCS，结束后自动释放显存。</span></div>
+          <div id="status" class="status"><strong>等待导入</strong><span class="help">选择一个视频后开始。</span><div class="progress"><i id="progress-bar"></i></div></div>
+        </form>
+        <section id="result" class="panel result" hidden>
+          <div class="panel-head"><div><h2>2. 结果</h2><p id="result-path"></p></div><span class="badge">可直接用于配音</span></div>
+          <div class="help" style="margin-top:16px">仅环境音视频</div>
+          <video id="result-video" controls preload="metadata"></video>
+          <div class="help" style="margin-top:16px">环境音轨</div>
+          <audio id="environment-audio" controls></audio>
+          <div class="file-list" id="file-list"></div>
+        </section>
+      </div>
+      <aside>
+        <section class="panel">
+          <div class="panel-head"><div><h2>处理流程</h2><p>输出可继续进入时间线配音。</p></div></div>
+          <div class="steps">
+            <div class="step"><b>01</b><div><strong>清洁原始音轨</strong>保留完整时间位置。</div></div>
+            <div class="step"><b>02</b><div><strong>分离人声与环境音</strong>人声用于检查，环境音用于混音。</div></div>
+            <div class="step"><b>03</b><div><strong>封装兼容视频</strong>输出 H.264 + AAC，方便 Windows 播放。</div></div>
+          </div>
+        </section>
+        <section class="panel"><div class="note">无声视频没有原始音轨时，系统会生成同长度静音环境轨；真正有环境音的视频需要先完成 HDEMUCS 分离。</div></section>
+      </aside>
+    </section>
+    <div class="footer"><a href="/timeline">下一步：按时间线重配人声 →</a> · <a href="/">返回主页</a></div>
+  </main>
+
+  <script>
+  (() => {
+    const form = document.getElementById('environment-form');
+    const submit = document.getElementById('submit');
+    const status = document.getElementById('status');
+    const progress = document.getElementById('progress-bar');
+    const result = document.getElementById('result');
+    const resultPath = document.getElementById('result-path');
+    const resultVideo = document.getElementById('result-video');
+    const environmentAudio = document.getElementById('environment-audio');
+    const fileList = document.getElementById('file-list');
+    const outputDir = form.querySelector('input[name="output_dir"]');
+    let timer = null;
+
+    fetch('/api/system/config', {cache: 'no-store'}).then(response => response.ok ? response.json() : null).then(config => {
+      if (outputDir && config && config.default_output) outputDir.value = config.default_output;
+    }).catch(() => {});
+
+    function esc(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+    function setStatus(title, detail, value, failed = false) {
+      status.classList.toggle('error', failed);
+      status.innerHTML = `<strong>${esc(title)}</strong><span class="help">${esc(detail || '')}</span><div class="progress"><i id="progress-bar"></i></div>`;
+      document.getElementById('progress-bar').style.width = `${Math.max(0, Math.min(100, Number(value || 0)))}%`;
+    }
+    function renderFiles(files) {
+      const labels = {video:'仅环境音视频', environment_audio:'环境音 WAV', vocal_audio:'人声 WAV（检查用）', clean_audio:'清洁混合音轨', manifest:'环境音处理 JSON'};
+      fileList.innerHTML = Object.entries(files || {}).map(([key, url]) => `<a href="${esc(url)}" target="_blank" rel="noreferrer"><span>${esc(labels[key] || key)}</span><span>打开 / 下载 →</span></a>`).join('');
+    }
+    async function refresh(jobId) {
+      const response = await fetch(`/api/environment/jobs/${encodeURIComponent(jobId)}`, {cache:'no-store'});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || '读取任务失败');
+      setStatus(data.status_label || data.status, data.phase || '', data.progress || 0, data.status === 'failed');
+      if (data.output_dir) resultPath.textContent = `输出目录：${data.output_dir}`;
+      if (data.status === 'done') {
+        submit.disabled = false;
+        const files = data.environment_files || {};
+        result.hidden = false;
+        if (files.video) resultVideo.src = `${files.video}?t=${Date.now()}`;
+        if (files.environment_audio) environmentAudio.src = `${files.environment_audio}?t=${Date.now()}`;
+        renderFiles(files);
+        return true;
+      }
+      if (data.status === 'failed') {
+        submit.disabled = false;
+        setStatus('处理失败', data.error || '未知错误', 100, true);
+        return true;
+      }
+      return false;
+    }
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (timer) { clearTimeout(timer); timer = null; }
+      submit.disabled = true; result.hidden = true; fileList.innerHTML = '';
+      setStatus('正在上传', '检查视频并创建环境音任务…', 2);
+      try {
+        const response = await fetch('/api/environment/jobs', {method:'POST', body:new FormData(form)});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || '任务创建失败');
+        resultPath.textContent = `输出目录：${data.output_dir || ''}`;
+        const poll = async () => {
+          try {
+            const finished = await refresh(data.job_id);
+            if (!finished) timer = setTimeout(poll, 1200);
+          } catch (error) {
+            submit.disabled = false; setStatus('读取任务失败', error.message, 0, true);
+          }
+        };
+        await poll();
+      } catch (error) {
+        submit.disabled = false; setStatus('任务创建失败', error.message, 0, true);
+      }
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -29,6 +29,17 @@ def _field(item: object, name: str, default: object = "") -> object:
     return getattr(item, name, default)
 
 
+def _model_language(language: str | None) -> str | None:
+    """Map the UI's auto option to the official Qwen3-ASR ``None`` value."""
+
+    if language is None:
+        return None
+    value = str(language).strip()
+    if value.lower() in {"auto", "automatic", "自动", "自动识别", "中英文"}:
+        return None
+    return value or "Chinese"
+
+
 def _timestamp_items(item: object) -> list[dict[str, Any]]:
     raw = _field(item, "time_stamps", None)
     if raw is None:
@@ -71,7 +82,12 @@ def _normalize_result(item: object, *, include_timestamps: bool) -> dict[str, An
     }
 
 
-def transcribe(paths: list[Path], *, raise_on_error: bool = False) -> list[str]:
+def transcribe(
+    paths: list[Path],
+    *,
+    raise_on_error: bool = False,
+    language: str | None = "Chinese",
+) -> list[str]:
     """Transcribe through Qwen3-ASR, optionally surfacing service errors."""
 
     return [
@@ -80,6 +96,7 @@ def transcribe(paths: list[Path], *, raise_on_error: bool = False) -> list[str]:
             paths,
             return_time_stamps=False,
             raise_on_error=raise_on_error,
+            language=language,
         )
     ]
 
@@ -89,6 +106,7 @@ def transcribe_detailed(
     *,
     return_time_stamps: bool = True,
     raise_on_error: bool = False,
+    language: str | None = "Chinese",
 ) -> list[dict[str, Any]]:
     """Return Qwen3-ASR text plus optional ForcedAligner token timestamps."""
 
@@ -99,6 +117,7 @@ def transcribe_detailed(
             paths,
             return_time_stamps=return_time_stamps,
             raise_on_error=raise_on_error,
+            language=language,
         )
     with ASR_LOCK:
         model = None
@@ -121,7 +140,7 @@ def transcribe_detailed(
             for path in paths:
                 results = model.transcribe(
                     audio=str(path),
-                    language="Chinese",
+                    language=_model_language(language),
                     return_time_stamps=return_time_stamps and "forced_aligner" in kwargs,
                 )
                 item = results[0] if isinstance(results, (list, tuple)) else results
@@ -144,6 +163,7 @@ def _transcribe_remote_detailed(
     *,
     return_time_stamps: bool,
     raise_on_error: bool = False,
+    language: str | None = "Chinese",
 ) -> list[dict[str, Any]]:
     """Call Qwen3-ASR without importing it into the CosyVoice process."""
 
@@ -152,7 +172,8 @@ def _transcribe_remote_detailed(
     output: list[dict[str, Any]] = []
     for path in paths:
         try:
-            data = {"language": "Chinese"}
+            requested_language = _model_language(language)
+            data = {"language": requested_language or "auto"}
             if return_time_stamps:
                 data["return_time_stamps"] = "true"
             with path.open("rb") as stream:

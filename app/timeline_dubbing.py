@@ -1,4 +1,4 @@
-"""Queued timeline dubbing for videos without a usable original soundtrack."""
+"""Queued timeline dubbing with optional preservation of environmental audio."""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ from . import tts
 from .asr import transcribe
 from .audio import fit_audio
 from .config import DUBBING_JOBS, DUBBING_WORK
-from .dubbing import _mux_video, _render_voice_track
+from .dubbing import _mux_video, _render_mixed_track, _render_voice_track
+from .environment import prepare_environment_stems, write_silence_track
 from .reference import prepare_reference
 from .timeline import parse_timeline
 from .utils import duration, safe_name, save_json, to_windows_path, to_wsl_path
@@ -255,7 +256,32 @@ def _run(job_id: str) -> None:
             raise ValueError("无法读取视频时长")
         segments, timeline_warnings = _usable_segments(imported, video_duration)
 
-        _update(job_id, status="running", status_label="准备参考音色", phase="清洁并筛选参考音频", progress=12)
+        keep_environment_audio = bool(options.get("keep_environment_audio", True))
+        if keep_environment_audio:
+            _update(job_id, status="running", status_label="分离环境音", phase="提取环境音与人声", progress=10)
+            environment_stems = prepare_environment_stems(
+                source,
+                work_root / "environment",
+                noise_reduction=float(options.get("noise_reduction", 6.0)),
+            )
+        else:
+            silent_environment = write_silence_track(
+                work_root / "environment" / "音频" / "环境音.wav",
+                video_duration,
+            )
+            environment_stems = {
+                "available": False,
+                "mode": "disabled",
+                "model": "none",
+                "error": "已关闭环境音保留",
+                "clean_path": "",
+                "vocal_path": "",
+                "background_path": str(silent_environment),
+                "sample_rate": 24000,
+                "duration_sec": round(video_duration, 3),
+            }
+
+        _update(job_id, status="running", status_label="准备参考音色", phase="清洁并筛选参考音频", progress=18)
         reference_audio = work_root / "参考音频.wav"
         preparation = prepare_reference(
             reference_source,
@@ -272,6 +298,23 @@ def _run(job_id: str) -> None:
         exported_reference = output_root / "参考音频.wav"
         output_root.mkdir(parents=True, exist_ok=True)
         shutil.copy2(reference_audio, exported_reference)
+        exported_audio_root = output_root / "音频"
+        environment_exports: dict[str, str] = {}
+        exported_environment_audio = ""
+        for key, filename in (
+            ("clean_path", "清洁混合音轨.wav"),
+            ("vocal_path", "人声.wav"),
+            ("background_path", "环境音.wav"),
+        ):
+            source_path = Path(str(environment_stems.get(key) or ""))
+            if source_path.is_file():
+                target_path = exported_audio_root / filename
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, target_path)
+                environment_exports[key] = to_windows_path(target_path)
+                if key == "background_path":
+                    exported_environment_audio = str(target_path)
+        environment_stems["exports"] = environment_exports
         imported_copy = output_root / f"输入时间线{timeline_path.suffix.lower() or '.json'}"
         shutil.copy2(timeline_path, imported_copy)
 
@@ -321,10 +364,27 @@ def _run(job_id: str) -> None:
         generation_root = output_root / f"生成_{job_id}"
         voice_track = generation_root / "时间线配音.wav"
         _render_voice_track(generated, video_duration, voice_track)
+        mixed_track = generation_root / "时间线配音+环境音.wav"
+        _render_mixed_track(
+            generated,
+            {
+                "duration_sec": video_duration,
+                "audio_path": "",
+                "audio_stems": {
+                    "vocal_path": "",
+                    "background_path": str(environment_stems.get("background_path") or ""),
+                },
+            },
+            target_speaker_id="all",
+            target_original_volume=0.0,
+            other_speaker_volume=0.0,
+            background_volume=max(0.0, min(2.0, float(options.get("background_volume", 1.0)))),
+            target=mixed_track,
+        )
         video_path = None
         if bool(options.get("export_video", True)):
-            _update(job_id, phase="封装配音视频", progress=92)
-            video_path = _mux_video(source, voice_track, generation_root / "时间线配音视频.mp4")
+            _update(job_id, phase="封装配音与环境音视频", progress=92)
+            video_path = _mux_video(source, mixed_track, generation_root / "时间线配音视频.mp4")
 
         timeline_manifest = {
             "schema_version": "voice-workbench-silent-dubbing/v1",
@@ -334,6 +394,8 @@ def _run(job_id: str) -> None:
             "imported_timeline_copy": str(imported_copy),
             "source_timeline_format": imported.get("source_format"),
             "video_duration_sec": round(video_duration, 3),
+            "audio_stems": environment_stems,
+            "environment_audio_preserved": keep_environment_audio,
             "reference_audio": str(exported_reference),
             "reference_text": reference_text,
             "reference_text_source": reference_text_source,
@@ -350,7 +412,9 @@ def _run(job_id: str) -> None:
             "duration_warning_count": sum(1 for item in generated if item["quality_flags"]),
             "warnings": timeline_manifest["warnings"],
             "notes": [
-                "本分支使用导入的字幕时间作为配音时间轴，视频原本没有可保留的音轨。",
+                "本分支使用导入的字幕时间作为配音时间轴。",
+                "有原始音轨时先用 HDEMUCS 分离环境音；最终视频使用环境音 + 新配音，不回放原始人声。",
+                "没有原始音轨时，环境音路自动使用同长度静音，视频画面与时间轴仍可正常配音。",
                 "默认保留 CosyVoice 自然语速；只有自然时长接近字幕槽（0.80–1.25 倍）时才做温和适配。",
                 "字幕槽严重短于文字时，片段会按自然语速播放，并在必要时顺延后续片段，避免快进和人声叠音。",
                 "参考音色会先经过约 8 秒候选筛选；导出的参考音频可单独试听和复核。",
@@ -360,6 +424,8 @@ def _run(job_id: str) -> None:
             "generation_id": job_id,
             "created_at": _now(),
             "voice_track": str(voice_track),
+            "mix_track": str(mixed_track),
+            "environment_audio": exported_environment_audio,
             "video": str(video_path) if video_path else None,
             "reference_audio": str(exported_reference),
             "segments": generated,

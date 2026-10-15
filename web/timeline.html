@@ -53,7 +53,7 @@
     .notice { margin-top:16px; color:var(--muted); font-size:12px; }
     @media(max-width:820px) { .shell{padding:17px 14px 32px;} .topbar{display:block;} .nav{margin-top:12px;gap:11px;} .layout{grid-template-columns:1fr;} .field-grid{grid-template-columns:1fr;} label.wide{grid-column:auto;} }
   </style>
-  <link rel="stylesheet" href="/console.css?v=20260912-ui2">
+  <link rel="stylesheet" href="/console.css?v=20260913-ui4">
 </head>
 <body class="console-page">
 <main class="shell">
@@ -62,13 +62,13 @@
       <span class="brand-logo-wrap"><img class="brand-logo" src="/brand-logo.png" alt="野构 Studio"></span>
       <span class="brand-copy"><strong>野构 Studio</strong><span>TIMELINE DUBBING</span></span>
     </a>
-    <nav class="nav"><a href="/">主页</a><a href="/analysis">原始分析</a><a class="active" href="/timeline">时间线配音</a><a href="/studio">角色配音</a><a href="/assets">语音资产</a><a href="/tts">独立试音</a></nav>
+    <nav class="nav"><a href="/">主页</a><a href="/analysis">访谈分析</a><a href="/subtitles">自动配字幕</a><a class="active" href="/timeline">时间线配音</a><a href="/environment">环境音分离</a><a href="/studio">角色配音</a><a href="/assets">语音资产</a><a href="/tts">独立试音</a></nav>
   </header>
 
   <section class="panel" style="margin-bottom:18px">
     <div class="eyebrow">SILENT VIDEO DUBBING</div>
     <h1>按字幕时间线给无声视频配音</h1>
-    <p>导入视频、字幕时间线和一段参考音色。系统会逐段生成配音，按原时间放回视频，并导出新的音轨和视频。</p>
+    <p>导入视频、字幕时间线和一段参考音色。系统先分离环境音，再按原时间生成配音，最后输出环境音 + 新人声的视频。</p>
   </section>
 
   <form id="timeline-form" class="layout">
@@ -78,7 +78,7 @@
         <div class="field-grid">
           <label class="wide">无声视频
             <input name="video" type="file" accept="video/*,.mp4,.mov,.mkv" required>
-            <span class="help">视频画面会原样保留；如果视频本身有音轨，本入口会用新配音替换它。</span>
+            <span class="help">视频画面会原样保留；如果视频有原音轨，系统会先提取环境音，原始人声不会进入成片。</span>
           </label>
           <label class="wide">字幕时间线
             <input name="timeline" type="file" accept=".srt,.vtt,.json,text/plain" required>
@@ -159,6 +159,11 @@
           <label class="check"><input name="trim_leading_silence" id="trim-leading-silence" type="checkbox" checked><span>删除开头静音</span></label>
           <label class="check"><input name="text_frontend" id="text-frontend" type="checkbox" checked><span>启用中文文本前端</span></label>
           <label class="check"><input name="prosody_tags" id="prosody-tags" type="checkbox" checked><span>轻度自然停顿（按标点加入官方 [breath]）</span></label>
+          <label class="check"><input name="keep_environment_audio" id="keep-environment-audio" type="checkbox" checked><span>保留环境音和音效</span></label>
+          <label>环境音比例
+            <input name="background_volume" type="number" min="0" max="2" step="0.05" value="1">
+            <span class="help">1.0 保持分离后的环境音响度，0 表示只输出新人声。</span>
+          </label>
         </div>
         <div class="actions"><button id="submit" type="submit">开始时间线配音</button><span id="submit-note" class="help">任务会在后台运行，可以留在本页查看进度。</span></div>
       </section>
@@ -172,11 +177,13 @@
         <div id="timeline-preview" class="preview"></div>
         <div id="result" class="media hidden">
           <div><div class="help">生成视频</div><video id="result-video" controls></video></div>
-          <div><div class="help">生成音轨</div><audio id="result-audio" controls></audio></div>
+          <div><div class="help">新人声轨</div><audio id="result-audio" controls></audio></div>
+          <div><div class="help">环境音 + 新人声混音轨</div><audio id="result-mix-audio" controls></audio></div>
+          <div><div class="help">分离后的环境音</div><audio id="result-environment-audio" controls></audio></div>
           <div id="result-links"></div>
         </div>
       </section>
-      <p class="notice">时间边界完全来自导入文件。视觉项目按每秒画面估计字幕边界时，建议先用短片测试，再在 JSON/SRT/VTT 中微调起止时间。</p>
+      <p class="notice">时间边界完全来自导入文件。带原声的视频会先分离环境音；视觉项目按每秒画面估计字幕边界时，建议先用短片测试，再在 JSON/SRT/VTT 中微调起止时间。</p>
     </aside>
   </form>
 </main>
@@ -242,12 +249,14 @@
     if (data.output_dir) jobPath.textContent = `输出目录：${data.output_dir}`;
     if (data.status === 'done') {
       clearInterval(timer); timer = null; submit.disabled = false;
-      const urls = data.generation_urls || {};
-      if (urls.video || urls.voice_track) {
-        result.classList.remove('hidden');
-        if (urls.video) document.getElementById('result-video').src = `${urls.video}?t=${Date.now()}`;
-        if (urls.voice_track) document.getElementById('result-audio').src = `${urls.voice_track}?t=${Date.now()}`;
-        document.getElementById('result-links').innerHTML = Object.entries(urls).map(([key, url]) => `<a href="${url}" target="_blank">打开 ${key}</a>`).join('　');
+        const urls = data.generation_urls || {};
+        if (urls.video || urls.voice_track) {
+          result.classList.remove('hidden');
+          if (urls.video) document.getElementById('result-video').src = `${urls.video}?t=${Date.now()}`;
+          if (urls.voice_track) document.getElementById('result-audio').src = `${urls.voice_track}?t=${Date.now()}`;
+          if (urls.mix_track) document.getElementById('result-mix-audio').src = `${urls.mix_track}?t=${Date.now()}`;
+          if (urls.environment_audio) document.getElementById('result-environment-audio').src = `${urls.environment_audio}?t=${Date.now()}`;
+          document.getElementById('result-links').innerHTML = Object.entries(urls).map(([key, url]) => `<a href="${url}" target="_blank">打开 ${key}</a>`).join('　');
       }
     } else if (data.status === 'failed') {
       clearInterval(timer); timer = null; submit.disabled = false;
@@ -260,7 +269,7 @@
     submit.disabled = true; result.classList.add('hidden'); preview.innerHTML = ''; jobPath.textContent = '';
     setStatus('正在上传并解析', '检查视频画面和字幕时间线…', 2);
     const data = new FormData(form);
-    for (const id of ['fit-to-slot','adaptive-speed','auto-select-reference','detect-reference-speakers','trim-leading-silence','text-frontend','prosody-tags']) {
+    for (const id of ['fit-to-slot','adaptive-speed','auto-select-reference','detect-reference-speakers','trim-leading-silence','text-frontend','prosody-tags','keep-environment-audio']) {
       const input = document.getElementById(id);
       data.set(input.name, String(input.checked));
     }

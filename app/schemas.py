@@ -59,3 +59,16 @@ class DubbingGenerateRequest(BaseModel):
 
 class DubbingTimelineSaveRequest(BaseModel):
     edits: list[DubbingSegmentEdit] = Field(default_factory=list)
+
+
+class SubtitleCueEdit(BaseModel):
+    """Editable fields for one automatically generated subtitle cue."""
+
+    cue_id: str = Field(min_length=1, max_length=80)
+    text: str = Field(default="", max_length=2000)
+    start_sec: float = Field(ge=0.0)
+    end_sec: float = Field(gt=0.0)
+
+
+class SubtitleSaveRequest(BaseModel):
+    cues: list[SubtitleCueEdit] = Field(default_factory=list)

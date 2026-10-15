@@ -1,6 +1,6 @@
 # 野构 Studio · 声像制片台
 
-野构 Studio 声像制片台把语音处理整理成两个入口：先用“识别并提取语音资产”整理说话人音色，再用“按说话人替换视频配音”完成时间轴配音和导出。项目使用 FastAPI、WSL Docker、Qwen3-ASR、Sortformer、Demucs 和 CosyVoice3。
+野构 Studio 声像制片台把媒体处理整理成清晰的流水线：可以先用“自动配字幕”生成并编辑视频字幕，再用时间线配音或按说话人替换视频配音；也可以单独整理说话人音色。项目使用 FastAPI、WSL Docker、Qwen3-ASR、Sortformer、Demucs 和 CosyVoice3。
 
 识别链路负责上传音频或视频、抽取完整音轨、可调清洁、Sortformer / 3D-Speaker 说话人识别、Qwen3-ASR-1.7B + ForcedAligner 时间戳识别，并把每个说话人保存为可读的资产目录。TTS 链路只读取已经生成的说话人资产，不会因为打开页面就重新分析源视频；重新配音工作台则按任务需要调用两条链路。
 
@@ -16,6 +16,8 @@ app/
   dubbing.py          全片时间轴、参考音色绑定、说话人替换、两路混音和视频导出
   timeline.py         SRT / VTT / 视觉项目 JSON 时间线导入
   timeline_dubbing.py 无声视频的时间线配音、音轨渲染和视频封装
+  environment.py      HDEMUCS 环境音 / 人声分离和仅环境音视频导出
+  subtitles.py        自动字幕识别、编辑、SRT/VTT/JSON 导出和硬字幕视频渲染
   separation.py       Hybrid Demucs 人声 / 背景两路分离
   identification.py   识别链路和资产清单
   tts.py              CosyVoice3 官方调用封装
@@ -25,6 +27,8 @@ web/assets.html       识别、清洁、切片和保存语音资产页面
 web/studio.html       重新配音工作台页面
 web/studio.js         时间轴分析和批量配音交互
 web/timeline.html     无声视频时间线配音页面
+web/environment.html  一键分离环境音并导出仅环境音视频页面
+web/subtitles.html    自动识别、编辑并生成带字幕视频页面
 scripts/run_webui.sh  Docker 启动脚本
 ```
 
@@ -67,7 +71,11 @@ bash scripts/run_webui.sh
 
 重新配音工作台会把结果写入服务器配置的输出目录下的 `<原文件名>__全片配音项目__<任务号>`，其中包含 `时间轴.json`、`说话人时间轴.md`、`音频/人声.wav`、`音频/背景声.wav`、参考音色、每句配音片段、`新配音人声.wav`、`配音混音.wav` 和可选的 `配音视频.mp4`。原始文件不会被覆盖。
 
-无声视频时间线入口：`http://127.0.0.1:7866/timeline`。它接收视频、SRT/VTT/JSON 时间线和一段参考音色，按字幕起止时间逐段调用 CosyVoice3，输出 `时间线配音.wav`、`时间线配音视频.mp4`、`时间线.json` 和逐段音频。视觉字幕项目导出的 `字幕提取时间轴.json` 可以直接导入；其中 `segments[].start_sec`、`end_sec`、`text` 会被保留，视觉模型的估计精度提示也会写入结果。默认保留自然语速；只有主动勾选温和适配且自然时长接近字幕槽（0.80–1.25 倍）时才做变速，严重不匹配的片段会保留原声并顺延后续片段，避免变成快进、慢放或叠音。这个入口当前使用一段参考音色生成整条时间线，后续再增加按 `speaker_id` 绑定多套音色。
+无声视频时间线入口：`http://127.0.0.1:7866/timeline`。它接收视频、SRT/VTT/JSON 时间线和一段参考音色，按字幕起止时间逐段调用 CosyVoice3；有原始音轨时先用 HDEMUCS 分离人声和环境音，最终输出环境音 + 新人声，不把原始人声带入成片。结果包含 `时间线配音.wav`、`时间线配音+环境音.wav`、`时间线配音视频.mp4`、`音频/环境音.wav`、`时间线.json` 和逐段音频。视觉字幕项目导出的 `字幕提取时间轴.json` 可以直接导入；其中 `segments[].start_sec`、`end_sec`、`text` 会被保留，视觉模型的估计精度提示也会写入结果。默认保留自然语速；只有主动勾选温和适配且自然时长接近字幕槽（0.80–1.25 倍）时才做变速，严重不匹配的片段会保留原声并顺延后续片段，避免变成快进、慢放或叠音。这个入口当前使用一段参考音色生成整条时间线，后续再增加按 `speaker_id` 绑定多套音色。
+
+环境音分离入口：`http://127.0.0.1:7866/environment`。上传带原声视频后，系统提取清洁音轨，用 HDEMUCS 保留 `vocals` 为人声、将 `drums`、`bass`、`other` 合成为环境音 / 音效，并输出 `仅环境音视频.mp4`、`音频/背景声.wav`、`音频/人声.wav`、清单 JSON。原视频不会被覆盖；分离结束后会释放 HDEMUCS 显存。
+
+自动配字幕入口：`http://127.0.0.1:7866/subtitles`。上传视频后，页面使用 Qwen3-ASR-1.7B 和 Qwen3-ForcedAligner-0.6B 生成原语言字幕，默认自动识别中文或 English；它不会翻译，也不会额外生成双语字幕。识别完成后可编辑文字和时间，保存会更新 SRT、VTT、JSON、ASS，点击“生成带字幕视频”会用 FFmpeg/libass 将字幕烧录到画面并保留原音轨，输出 `带字幕视频.mp4`。导出默认使用更通用的 H.264 Main、yuv420p、AAC 48k MP4；超过 1920 像素的素材会按比例缩小，以提高 Windows 播放器兼容性。需要保留原始分辨率时可设置 `SUBTITLE_MAX_DIMENSION=0`。
 
 当前分离采用 [Demucs 官方仓库](https://github.com/facebookresearch/demucs) 对应的 Hybrid Demucs 权重，将 `vocals` 保留为人声，将 `drums`、`bass` 和 `other` 合成为背景 / 音效。3D-Speaker 使用分离后的人声轨做说话人聚类；ASR 和时间戳使用清洁原轨，以减少动画音效和分离伪影对字音的影响。它适合当前演示素材和大多数单人说话场景；两个真人在同一时刻重叠说话时，仍然会落在同一条人声轨里，不能只从混音中精确抽出其中一个人的原声。
 
@@ -138,6 +146,15 @@ CosyVoice2 示例中的 `add_zero_shot_spk` 缓存调用没有套用到 CosyVoic
 - `POST /api/timeline/jobs`：导入无声视频和 SRT/VTT/JSON 时间线，创建逐段配音任务。
 - `GET /api/timeline/jobs/{job_id}`：查询无声视频时间线配音任务。
 - `GET /api/timeline/jobs/{job_id}/files/{path}`：访问无声视频配音任务输出文件。
+- `POST /api/environment/jobs`：创建人声 / 环境音分离并导出仅环境音视频任务。
+- `GET /api/environment/jobs/{job_id}`：查询环境音分离任务。
+- `GET /api/environment/jobs/{job_id}/files/{path}`：访问环境音分离任务输出文件。
+- `POST /api/subtitles/jobs`：创建自动字幕识别任务，默认使用 Qwen3-ASR 自动检测原语言。
+- `GET /api/subtitles/jobs/{job_id}`：查询字幕识别或视频渲染状态。
+- `GET /api/subtitles/jobs/{job_id}/timeline`：获取可编辑字幕时间线。
+- `POST /api/subtitles/jobs/{job_id}/save`：保存字幕文字和时间修改。
+- `POST /api/subtitles/jobs/{job_id}/render`：保存当前编辑并创建 FFmpeg 硬字幕视频任务。
+- `GET /api/subtitles/jobs/{job_id}/files/{path}`：访问字幕文件或带字幕视频。
 - `GET /api/speaker/{asset_id}/sample`：获取清洁参考样本。
 - `GET /api/speaker/{asset_id}/latest`：获取最近一次试音。
 - `GET /api/tts/direct/{job_id}/output`：获取直接 TTS 结果。

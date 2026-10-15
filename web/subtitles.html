@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>野构 Studio · 自动配字幕</title>
+  <link rel="icon" href="/brand-logo.png" type="image/png">
+  <style>
+    :root { color-scheme: light; --subtitle-ink:#243d50; --subtitle-muted:#526b7b; --subtitle-line:#d6e1e7; --subtitle-soft:#f7fafb; --subtitle-orange:#e86a2a; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#eef3f6; color:var(--subtitle-ink); font:14px/1.6 Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; }
+    a { color:inherit; text-decoration:none; }
+    .subtitle-content { display:grid; gap:18px; }
+    .subtitle-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; }
+    .subtitle-hero-copy { max-width:780px; }
+    .eyebrow { color:#c9531d; font-size:10px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+    h1 { margin:5px 0 7px; color:var(--subtitle-ink); font-size:32px; letter-spacing:-.04em; line-height:1.2; }
+    h2 { margin:0; color:var(--subtitle-ink); font-size:18px; letter-spacing:-.02em; }
+    p { margin:5px 0 0; color:var(--subtitle-muted); }
+    .hero-stamp { min-width:205px; padding:13px 15px; border:1px solid var(--subtitle-line); border-radius:6px; background:#fff; color:var(--subtitle-muted); font-size:12px; }
+    .hero-stamp strong { display:block; margin-bottom:2px; color:var(--subtitle-ink); font-size:15px; }
+    .subtitle-layout { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr); gap:18px; align-items:start; }
+    .subtitle-card { min-width:0; padding:20px; border:1px solid var(--subtitle-line); border-radius:6px; background:#fff; box-shadow:0 4px 14px rgba(42,67,81,.055); }
+    .card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding-bottom:14px; border-bottom:1px solid var(--subtitle-line); }
+    .card-head p { max-width:700px; font-size:12px; }
+    .badge { display:inline-flex; align-items:center; min-height:25px; padding:3px 9px; border:1px solid #f0c6b0; border-radius:4px; background:#fff5ef; color:#c9531d; font-size:11px; font-weight:700; white-space:nowrap; }
+    .upload-box { display:flex; align-items:center; justify-content:space-between; gap:18px; min-height:112px; margin-top:17px; padding:20px; border:1px dashed #d99b7b; border-radius:5px; background:#fffaf7; }
+    .upload-box strong { display:block; color:var(--subtitle-ink); font-size:15px; }
+    .upload-box span { display:block; margin-top:4px; color:var(--subtitle-muted); font-size:12px; }
+    .upload-box input { max-width:310px; }
+    .field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:17px; }
+    label { display:flex; flex-direction:column; gap:5px; color:var(--subtitle-muted); font-size:12px; font-weight:650; }
+    label.wide { grid-column:1/-1; }
+    input,select,button,textarea { min-height:38px; border:1px solid #c3d3dc; border-radius:4px; background:#fff; color:var(--subtitle-ink); font:inherit; padding:8px 10px; }
+    input:focus,select:focus,textarea:focus { outline:2px solid rgba(232,106,42,.24); outline-offset:1px; }
+    .help { color:#708593; font-size:11px; font-weight:400; line-height:1.55; }
+    .actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:18px; }
+    button { border-color:var(--subtitle-orange); background:var(--subtitle-orange); color:#fff; cursor:pointer; font-weight:750; }
+    button:hover { border-color:#c9531d; background:#c9531d; }
+    button:disabled { cursor:wait; opacity:.58; }
+    button.secondary { border-color:#c3d3dc; background:#f5f8f9; color:var(--subtitle-ink); }
+    button.secondary:hover { border-color:#aabdc7; background:#eaf1f4; }
+    .notice { margin-top:16px; padding:11px 13px; border-left:3px solid var(--subtitle-orange); background:#fff5ef; color:#754b39; font-size:12px; }
+    .status-box { margin-top:17px; padding:14px; border:1px solid var(--subtitle-line); border-radius:5px; background:var(--subtitle-soft); }
+    .status-line { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .status-line strong { color:var(--subtitle-ink); }
+    .status-line span { color:#708593; font-size:11px; }
+    .progress { height:7px; margin-top:12px; overflow:hidden; border-radius:5px; background:#e0e8eb; }
+    .progress i { display:block; width:0; height:100%; background:var(--subtitle-orange); transition:width .2s ease; }
+    .status-detail { min-height:38px; margin-top:7px; }
+    .path { margin-top:13px; color:#c9531d; font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
+    .file-list { display:grid; gap:7px; margin-top:15px; }
+    .file-list a { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 10px; border:1px solid var(--subtitle-line); border-radius:4px; background:#fff; color:#c9531d; font-size:12px; }
+    .file-list a:hover { border-color:#e7a17f; background:#fffaf7; }
+    .file-list small { color:#708593; font-size:10px; }
+    .render-box { margin-top:17px; padding:14px; border:1px solid #f0c6b0; border-radius:5px; background:#fffaf7; }
+    .render-box-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .render-box-head strong { color:var(--subtitle-ink); font-size:13px; }
+    .render-box p { font-size:11px; }
+    .render-status { min-height:19px; margin-top:9px; color:var(--subtitle-muted); font-size:11px; }
+    .render-video { display:block; width:100%; max-height:420px; margin-top:12px; background:#101820; }
+    .render-link { display:inline-block; margin-top:9px; color:#c9531d; font-size:12px; font-weight:700; }
+    .empty { color:#708593; font-size:12px; }
+    .editor-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:17px; }
+    .editor-toolbar .help { margin-right:auto; }
+    .editor-wrap { margin-top:13px; overflow:auto; border:1px solid var(--subtitle-line); border-radius:5px; }
+    table { width:100%; min-width:760px; border-collapse:collapse; table-layout:fixed; }
+    th,td { padding:9px 10px; border-bottom:1px solid var(--subtitle-line); text-align:left; vertical-align:top; }
+    th { background:#f3f7f8; color:var(--subtitle-muted); font-size:11px; font-weight:750; }
+    td { color:var(--subtitle-ink); font-size:12px; }
+    tbody tr:last-child td { border-bottom:0; }
+    th:first-child,td:first-child { width:58px; text-align:center; }
+    th:nth-child(2),td:nth-child(2),th:nth-child(3),td:nth-child(3) { width:140px; }
+    th:last-child,td:last-child { width:74px; }
+    td input { width:100%; min-height:34px; padding:6px 7px; font:12px ui-monospace,SFMono-Regular,Consolas,monospace; }
+    td textarea { width:100%; min-height:54px; resize:vertical; line-height:1.5; }
+    .row-number { color:#708593; font:11px ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .delete-cue { min-height:32px; padding:5px 8px; border-color:#d6e1e7; background:#f5f8f9; color:#526b7b; font-size:11px; }
+    .delete-cue:hover { border-color:#e7a17f; background:#fff5ef; color:#c9531d; }
+    .hidden { display:none !important; }
+    @media (max-width:900px) { .subtitle-layout { grid-template-columns:1fr; } .subtitle-hero { align-items:flex-start; flex-direction:column; } .hero-stamp { width:100%; } }
+    @media (max-width:650px) { .field-grid { grid-template-columns:1fr; } label.wide { grid-column:auto; } .upload-box { align-items:flex-start; flex-direction:column; } .upload-box input { max-width:none; width:100%; } }
+  </style>
+  <link rel="stylesheet" href="/console.css?v=20260913-ui4">
+</head>
+<body class="console-page">
+<main class="shell">
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-logo-wrap"><img class="brand-logo" src="/brand-logo.png" alt="野构 Studio"></span>
+      <span class="brand-copy"><strong>野构 Studio</strong><span>AUDIO WORKSPACE</span></span>
+    </a>
+  <nav class="nav" aria-label="主导航"><a href="/">主页</a><a href="/analysis">访谈分析</a><a class="active" href="/subtitles">自动配字幕</a><a href="/timeline">时间线配音</a><a href="/environment">环境音分离</a><a href="/studio">角色配音</a><a href="/assets">语音资产</a><a href="/tts">独立试音</a></nav>
+  </header>
+
+  <section class="subtitle-content">
+    <section class="subtitle-hero">
+      <div class="subtitle-hero-copy">
+        <div class="eyebrow">SUBTITLE WORKFLOW</div>
+        <h1>自动配字幕</h1>
+        <p>上传一段视频，直接识别出带时间戳的字幕。识别完成后可以修改文字和时间，保存后生成真正带字幕的视频，同时保留字幕文件。</p>
+      </div>
+      <div class="hero-stamp"><strong>识别 · 编辑 · 出片</strong>自动识别原声语言<br>生成视频硬字幕与字幕文件</div>
+    </section>
+
+    <div class="subtitle-layout">
+      <section class="subtitle-card">
+        <div class="card-head"><div><div class="eyebrow">01 / INPUT</div><h2>导入视频</h2><p>系统读取第一个音轨识别字幕，原始视频不会被覆盖。</p></div><span class="badge">Qwen3-ASR</span></div>
+        <form id="subtitle-form">
+          <div class="upload-box">
+            <div><strong>选择要配字幕的视频</strong><span>支持 MP4、MOV、MKV、AVI、WebM 等常见视频格式。</span></div>
+            <input name="media" type="file" accept="video/*,.mp4,.mov,.mkv,.avi,.webm" required>
+          </div>
+          <div class="field-grid">
+            <label>识别语言
+              <select name="language"><option value="auto" selected>自动识别（中文 / English）</option><option value="Chinese">仅中文</option><option value="English">仅 English</option></select>
+              <span class="help">不翻译、不生成双语字幕，说什么语言就识别什么语言。</span>
+            </label>
+            <label>输出目录
+              <input name="output_dir" value="" placeholder="使用服务器默认目录">
+              <span class="help">留空使用当前配置。</span>
+            </label>
+          </div>
+          <details>
+            <summary>高级设置</summary>
+            <div class="field-grid">
+              <label>长音频分段秒数
+                <input name="chunk_seconds" type="number" min="30" max="300" step="1" value="240">
+                <span class="help">默认 240 秒，用于长音频时间戳识别；一般不需要调整。</span>
+              </label>
+            </div>
+          </details>
+          <div class="notice">点击“开始识别”后才会调用 ASR。识别完成后，字幕会在下方表格中出现；确认编辑后，点击“生成带字幕视频”。</div>
+          <div class="actions"><button id="start-button" type="submit">开始识别</button><span class="help">识别结果会同时生成 SRT、VTT、JSON 和 ASS。</span></div>
+        </form>
+      </section>
+
+      <aside class="subtitle-card">
+        <div class="card-head"><div><div class="eyebrow">02 / RESULT</div><h2>识别状态</h2><p>长音频会自动分段识别，再合并回原时间轴。</p></div></div>
+        <div class="status-box">
+          <div class="status-line"><strong id="status-title">等待导入</strong><span id="status-percent">0%</span></div>
+          <div id="status-detail" class="status-detail help">选择文件后点击开始识别。</div>
+          <div class="progress"><i id="progress-bar"></i></div>
+        </div>
+        <div id="job-id" class="help" style="margin-top:12px"></div>
+        <div id="output-path" class="path"></div>
+        <div id="stats" class="help" style="margin-top:14px"></div>
+        <div id="files" class="file-list"><div class="empty">完成识别后，这里显示字幕文件；渲染完成后会显示视频。</div></div>
+      </aside>
+    </div>
+
+    <section id="editor-section" class="subtitle-card hidden">
+      <div class="card-head"><div><div class="eyebrow">03 / EDIT & EXPORT</div><h2>编辑并生成带字幕视频</h2><p>修改文字或时间后先保存，再生成硬字幕视频。也可以下载 SRT、VTT、JSON 继续给其他流程使用。</p></div><span class="badge">可编辑</span></div>
+      <div class="editor-toolbar"><span class="help">时间单位为秒，精确到毫秒；编辑后先保存，再生成视频。</span><button id="add-button" class="secondary" type="button">新增字幕</button><button id="save-button" type="button">保存修改</button><button id="render-button" type="button" disabled>生成带字幕视频</button></div>
+      <div class="editor-wrap">
+        <table>
+          <thead><tr><th>#</th><th>开始（秒）</th><th>结束（秒）</th><th>字幕文字</th><th>操作</th></tr></thead>
+          <tbody id="cue-rows"></tbody>
+        </table>
+      </div>
+      <div class="render-box">
+        <div class="render-box-head"><strong>视频输出</strong><span class="badge">FFmpeg 硬字幕</span></div>
+        <p>把当前字幕直接烧录到画面中，保留原视频音轨。视频较长时会在后台处理，完成后可直接预览和下载。</p>
+        <div id="render-status" class="render-status">保存字幕后可以生成带字幕视频。</div>
+        <video id="render-video" class="render-video hidden" controls preload="metadata"></video>
+        <a id="render-link" class="render-link hidden" target="_blank" rel="noreferrer">打开 / 下载带字幕视频 →</a>
+      </div>
+    </section>
+  </section>
+
+  <div class="footer"><a href="/timeline">下一步：用字幕时间线配音 →</a> · <a href="/">返回主页</a></div>
+</main>
+<script>
+(() => {
+  const form = document.getElementById('subtitle-form');
+  const startButton = document.getElementById('start-button');
+  const saveButton = document.getElementById('save-button');
+  const addButton = document.getElementById('add-button');
+  const renderButton = document.getElementById('render-button');
+  const statusTitle = document.getElementById('status-title');
+  const statusDetail = document.getElementById('status-detail');
+  const statusPercent = document.getElementById('status-percent');
+  const progress = document.getElementById('progress-bar');
+  const jobIdNode = document.getElementById('job-id');
+  const outputPath = document.getElementById('output-path');
+  const stats = document.getElementById('stats');
+  const files = document.getElementById('files');
+  const editor = document.getElementById('editor-section');
+  const rows = document.getElementById('cue-rows');
+  const renderStatus = document.getElementById('render-status');
+  const renderVideo = document.getElementById('render-video');
+  const renderLink = document.getElementById('render-link');
+  const outputDir = form.querySelector('input[name="output_dir"]');
+  let jobId = '';
+  let timer = null;
+  let renderTimer = null;
+
+  fetch('/api/system/config', { cache:'no-store' }).then(response => response.ok ? response.json() : null).then(config => {
+    if (config && config.default_output && outputDir && !outputDir.value) outputDir.value = config.default_output;
+  }).catch(() => {});
+
+  function setStatus(title, detail, value, failed = false) {
+    statusTitle.textContent = title || '处理中';
+    statusTitle.style.color = failed ? '#b33b2b' : '';
+    statusDetail.textContent = detail || '';
+    const safeValue = Math.max(0, Math.min(100, Number(value || 0)));
+    statusPercent.textContent = `${safeValue}%`;
+    progress.style.width = `${safeValue}%`;
+  }
+
+  function showFiles(payload) {
+    const labels = { srt:'SRT 字幕', vtt:'VTT 字幕', json:'JSON 时间线', text:'纯文本稿', ass:'ASS 样式字幕', video:'带字幕视频' };
+    const entries = Object.entries(payload.subtitle_files || {});
+    files.replaceChildren();
+    if (!entries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = '完成识别后，这里显示字幕文件。';
+      files.appendChild(empty);
+      return;
+    }
+    entries.forEach(([key, url]) => {
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noreferrer';
+      const label = document.createElement('span');
+      label.textContent = labels[key] || key;
+      const action = document.createElement('small');
+      action.textContent = '打开 / 下载';
+      link.append(label, action);
+      files.appendChild(link);
+    });
+  }
+
+  function showRender(payload) {
+    const supported = payload.render_supported !== false;
+    const state = String(payload.render_status || 'not_started');
+    if (!supported) {
+      renderButton.disabled = true;
+      renderStatus.textContent = '当前输入是音频文件，只能导出字幕文件；导入视频后可生成带字幕视频。';
+      renderVideo.classList.add('hidden');
+      renderLink.classList.add('hidden');
+      return;
+    }
+    renderButton.disabled = state === 'queued' || state === 'running';
+    if (state === 'queued' || state === 'running') {
+      renderStatus.textContent = `${payload.render_phase || '正在生成带字幕视频'}（${Number(payload.render_progress || 0)}%）`;
+      return;
+    }
+    if (state === 'failed') {
+      renderButton.disabled = false;
+      renderStatus.textContent = payload.render_error || '视频渲染失败，可以修改字幕后重试。';
+      renderVideo.classList.add('hidden');
+      renderLink.classList.add('hidden');
+      return;
+    }
+    const videoUrl = payload.subtitle_files && payload.subtitle_files.video;
+    if (state === 'done' && videoUrl) {
+      renderStatus.textContent = '带字幕视频已生成，可以在这里预览。';
+      renderVideo.src = `${videoUrl}?t=${Date.now()}`;
+      renderVideo.classList.remove('hidden');
+      renderLink.href = videoUrl;
+      renderLink.classList.remove('hidden');
+      return;
+    }
+    renderStatus.textContent = payload.render_phase || '保存字幕后可以生成带字幕视频。';
+    renderVideo.classList.add('hidden');
+    renderLink.classList.add('hidden');
+  }
+
+  function renumberRows() {
+    rows.querySelectorAll('tr').forEach((row, index) => {
+      row.querySelector('.row-number').textContent = String(index + 1).padStart(3, '0');
+    });
+  }
+
+  function appendCue(cue) {
+    const row = document.createElement('tr');
+    row.dataset.cueId = String(cue.cue_id || `cue_${Date.now()}`);
+    const number = document.createElement('td');
+    number.innerHTML = '<span class="row-number"></span>';
+    const startCell = document.createElement('td');
+    const start = document.createElement('input');
+    start.type = 'number'; start.step = '0.001'; start.min = '0'; start.value = Number(cue.start_sec || 0).toFixed(3);
+    startCell.appendChild(start);
+    const endCell = document.createElement('td');
+    const end = document.createElement('input');
+    end.type = 'number'; end.step = '0.001'; end.min = '0'; end.value = Number(cue.end_sec || 0).toFixed(3);
+    endCell.appendChild(end);
+    const textCell = document.createElement('td');
+    const text = document.createElement('textarea');
+    text.value = String(cue.text || '');
+    textCell.appendChild(text);
+    const actionCell = document.createElement('td');
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.className = 'delete-cue'; remove.textContent = '删除';
+    remove.addEventListener('click', () => { row.remove(); renumberRows(); });
+    actionCell.appendChild(remove);
+    row.append(number, startCell, endCell, textCell, actionCell);
+    rows.appendChild(row);
+  }
+
+  function renderEditor(cues) {
+    rows.replaceChildren();
+    (Array.isArray(cues) ? cues : []).forEach(appendCue);
+    renumberRows();
+    editor.classList.remove('hidden');
+  }
+
+  function readCues() {
+    return Array.from(rows.querySelectorAll('tr')).map(row => ({
+      cue_id: row.dataset.cueId,
+      start_sec: Number(row.querySelector('td:nth-child(2) input').value),
+      end_sec: Number(row.querySelector('td:nth-child(3) input').value),
+      text: row.querySelector('textarea').value,
+    }));
+  }
+
+  async function refresh() {
+    const response = await fetch(`/api/subtitles/jobs/${encodeURIComponent(jobId)}`, { cache:'no-store' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || '读取任务失败');
+    setStatus(payload.status_label || payload.status, payload.phase || '', payload.progress || 0, payload.status === 'failed');
+    jobIdNode.textContent = payload.job_id ? `任务编号：${payload.job_id}` : '';
+    outputPath.textContent = payload.output_dir ? `输出目录：${payload.output_dir}` : '';
+    if (payload.status === 'done') {
+      if (timer) { clearInterval(timer); timer = null; }
+      startButton.disabled = false;
+      stats.textContent = `共 ${payload.cue_count || 0} 条字幕 · ${Number(payload.duration_sec || 0).toFixed(1)} 秒`;
+      showFiles(payload);
+      showRender(payload);
+      const timelineResponse = await fetch(`/api/subtitles/jobs/${encodeURIComponent(jobId)}/timeline`, { cache:'no-store' });
+      const timeline = await timelineResponse.json();
+      if (!timelineResponse.ok) throw new Error(timeline.detail || '读取字幕时间线失败');
+      renderEditor(timeline.segments || []);
+    } else if (payload.status === 'failed') {
+      if (timer) { clearInterval(timer); timer = null; }
+      startButton.disabled = false;
+      stats.textContent = '';
+      files.replaceChildren();
+      const error = document.createElement('div');
+      error.className = 'empty'; error.textContent = payload.error || '识别失败'; files.appendChild(error);
+      renderButton.disabled = true;
+      renderStatus.textContent = '识别失败，暂时不能生成视频。';
+    } else {
+      showRender(payload);
+    }
+  }
+
+  async function refreshRender() {
+    if (!jobId) return;
+    const response = await fetch(`/api/subtitles/jobs/${encodeURIComponent(jobId)}`, { cache:'no-store' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || '读取渲染任务失败');
+    showFiles(payload);
+    showRender(payload);
+    if (payload.render_status === 'done' || payload.render_status === 'failed') {
+      if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
+    }
+  }
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const media = form.querySelector('input[name="media"]').files[0];
+    if (!media) return;
+    if (timer) { clearInterval(timer); timer = null; }
+    if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
+    startButton.disabled = true;
+    saveButton.disabled = true;
+    renderButton.disabled = true;
+    renderVideo.pause();
+    renderVideo.removeAttribute('src');
+    renderVideo.load();
+    renderVideo.classList.add('hidden');
+    renderLink.classList.add('hidden');
+    renderStatus.textContent = '识别完成并保存字幕后，可以生成带字幕视频。';
+    editor.classList.add('hidden');
+    files.innerHTML = '<div class="empty">识别完成后显示字幕文件。</div>';
+    setStatus('正在创建任务', '上传并检查媒体…', 1);
+    const data = new FormData(form);
+    try {
+      const response = await fetch('/api/subtitles/jobs', { method:'POST', body:data });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || '任务创建失败');
+      jobId = payload.job_id;
+      saveButton.disabled = false;
+      await refresh();
+      timer = setInterval(() => refresh().catch(error => {
+        if (timer) { clearInterval(timer); timer = null; }
+        startButton.disabled = false;
+        setStatus('读取任务失败', error.message || String(error), 0, true);
+      }), 1200);
+    } catch (error) {
+      startButton.disabled = false;
+      setStatus('任务创建失败', error.message || String(error), 0, true);
+    }
+  });
+
+  addButton.addEventListener('click', () => {
+    const last = rows.querySelector('tr:last-child');
+    const start = last ? Number(last.querySelector('td:nth-child(3) input').value) : 0;
+    appendCue({ cue_id:`cue_${Date.now()}`, start_sec:start, end_sec:start + 1, text:'' });
+    renumberRows();
+    rows.querySelector('tr:last-child textarea').focus();
+  });
+
+  saveButton.addEventListener('click', async () => {
+    if (!jobId) return;
+    saveButton.disabled = true;
+    setStatus('正在保存', '写入字幕时间线并重新导出文件…', 98);
+    try {
+      const response = await fetch(`/api/subtitles/jobs/${encodeURIComponent(jobId)}/save`, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ cues: readCues() }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || '字幕保存失败');
+      setStatus('字幕已保存', '可以继续编辑，也可以下载最新文件。', 100);
+      showFiles(payload.job || {});
+      showRender(payload.job || {});
+      saveButton.disabled = false;
+    } catch (error) {
+      saveButton.disabled = false;
+      setStatus('保存失败', error.message || String(error), 0, true);
+    }
+  });
+
+  renderButton.addEventListener('click', async () => {
+    if (!jobId) return;
+    renderButton.disabled = true;
+    renderStatus.textContent = '正在保存当前字幕并排队生成视频…';
+    try {
+      const response = await fetch(`/api/subtitles/jobs/${encodeURIComponent(jobId)}/render`, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ cues: readCues() }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || '带字幕视频任务创建失败');
+      showFiles(payload);
+      showRender(payload);
+      if (renderTimer) clearInterval(renderTimer);
+      renderTimer = setInterval(() => refreshRender().catch(error => {
+        if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
+        renderButton.disabled = false;
+        renderStatus.textContent = error.message || String(error);
+      }), 1200);
+    } catch (error) {
+      renderButton.disabled = false;
+      renderStatus.textContent = error.message || String(error);
+    }
+  });
+})();
+</script>
+</body>
+</html>
