@@ -2,6 +2,19 @@
 
 野构 Studio 声像制片台把媒体处理整理成清晰的流水线：可以先用“自动配字幕”生成并编辑视频字幕，再用时间线配音或按说话人替换视频配音；也可以单独整理说话人音色。项目使用 FastAPI、WSL Docker、Qwen3-ASR、Sortformer、Demucs 和 CosyVoice3。
 
+> **合并说明（2026-10-15）**：本仓库同时承载**音色台**（本 README，7866）与**视频分析台**（`video/` 子目录，7877；原 media-analysis-vision-studio 仓库经 git subtree 并入，提交历史保留）。两个服务独立运行，可用统一启动器一并拉起。
+
+## 合并后的两个服务
+
+| 服务 | 端口 | 代码位置 | 启动 | 模型页 |
+|---|---|---|---|---|
+| 音色台（声像制片台） | 7866 | 仓库根目录 | `bash scripts/start_webui_background.sh` | `/models` 切换 TTS 主模型（基础版 / RL） |
+| 视频分析台（导演拉片） | 7877 | `video/` | `bash video/scripts/start_webui_background.sh` | `#models` 切换视觉主模型（MiniCPM-V / Qwen3-VL 等） |
+
+统一启动：`bash scripts/start_all.sh`（已在运行的服务会跳过）；Windows 桌面「启动野构工作台.bat」（仓库副本 `scripts/野构工作台启动器.bat`）。
+
+模型约定：两个服务各有「模型」页，切换的是启动的主模型，重启后选择保持。音色台变体注册表在 `app/models.py`；视频台注册表在 `video/config/models.json`，未下载的模型显示「未下载」，可用 `video/scripts/fetch_model.sh` 从 hf-mirror 断点续传下载。
+
 识别链路负责上传音频或视频、抽取完整音轨、可调清洁、Sortformer / 3D-Speaker 说话人识别、Qwen3-ASR-1.7B + ForcedAligner 时间戳识别，并把每个说话人保存为可读的资产目录。TTS 链路只读取已经生成的说话人资产，不会因为打开页面就重新分析源视频；重新配音工作台则按任务需要调用两条链路。
 
 ## 目录
@@ -20,7 +33,8 @@ app/
   subtitles.py        自动字幕识别、编辑、SRT/VTT/JSON 导出和硬字幕视频渲染
   separation.py       Hybrid Demucs 人声 / 背景两路分离
   identification.py   识别链路和资产清单
-  tts.py              CosyVoice3 官方调用封装
+  tts.py              CosyVoice3 官方调用封装（支持 base / RL 变体切换）
+  models.py           TTS 主模型变体注册表与选择持久化
   main.py             FastAPI 接口
 web/index.html        两条流水线的主页
 web/assets.html       识别、清洁、切片和保存语音资产页面
@@ -30,6 +44,8 @@ web/timeline.html     无声视频时间线配音页面
 web/environment.html  一键分离环境音并导出仅环境音视频页面
 web/subtitles.html    自动识别、编辑并生成带字幕视频页面
 scripts/run_webui.sh  Docker 启动脚本
+scripts/start_all.sh  统一启动音色台 + 视频分析台
+video/                视频分析台（独立服务，见 video/README.md）
 ```
 
 运行时数据在仓库外的 `/home/administrator/ragflow-managed/state/speaker-webui`，模型也不进入 Git。输出目录由部署变量 `VOICE_DEFAULT_OUTPUT` 提供；当前本机默认值是容器内的 `/mnt/f/voice`，浏览器会显示为对应的 Windows 路径。迁移到云端时只需传入云端目录，例如 `VOICE_DEFAULT_OUTPUT=/data/voice`。
