@@ -70,6 +70,40 @@ python3 media_analysis_pipeline.py \
 
 加上 `--max-duration 60` 可以只分析前 60 秒；已有产物时，可以用 `--package-only` 重新整理文档。
 
+## Agent CLI（最小入口）
+
+运行中的 WebUI 服务也是 agent 的任务服务，无需打开浏览器。在 `video/` 目录调用：
+
+```bash
+# 提交并等待完成；stdout 仅一条 JSON，进度写入 stderr。
+python3 agent_cli.py analyze /mnt/c/path/to/video.mp4 > result.json
+
+# 后台提交，返回 JSON 中的 id 可用于后续查询或等待。
+python3 agent_cli.py analyze /mnt/c/path/to/video.mp4 --no-wait
+python3 agent_cli.py status JOB_ID
+python3 agent_cli.py wait JOB_ID --timeout 7200
+
+# 可选区间、字幕模式；默认导演拉片，完成后保留模型常驻。
+python3 agent_cli.py analyze /mnt/c/path/to/video.mp4 --start-sec 10 --end-sec 20
+python3 agent_cli.py analyze /mnt/c/path/to/video.mp4 --mode subtitle
+```
+
+客户端依赖现有 `requirements.txt` 中的 requests；默认连接 `http://127.0.0.1:7877`，
+可用 `YEGOU_URL` 或命令前的 `--url` 覆盖。使用服务当前选中的视觉模型，
+和 WebUI 共用单 GPU 队列。输入路径属于运行 CLI 的机器，视频通过 HTTP 上传。
+Windows agent 可通过 WSL 调用：
+
+```powershell
+wsl.exe -d Ubuntu-26.04 --exec python3 /home/administrator/voice-asset-workbench/video/agent_cli.py analyze /mnt/c/path/to/video.mp4
+```
+
+结果 JSON 包含 `id`、`status`、`output_path`（服务端路径）以及 `files` 的绝对下载 URL。
+agent 可读取 `03_代码综合时间线.md` 继续分析；`04_最终导演分析.md` 仍是待深化稿。
+退出码：0 表示成功或成功提交/查询，1 表示任务失败/取消，2 表示输入或 HTTP 错误，
+124 表示等待超时。超时不会取消服务端任务，可凭任务 ID 再次 `wait`。
+`--timeout` 限制轮询等待时间（不含上传，每次 HTTP 请求超时 60 秒）。
+仅在明确需要释放三个模型时添加 `--release-gpu`。
+
 ## MiniCPM-V 4.7-1B
 
 4.7 需要包含原生适配的 vLLM 开发版。当前注册表绑定官方构建
