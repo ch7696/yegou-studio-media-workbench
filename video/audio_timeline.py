@@ -478,7 +478,7 @@ def classify(path: Path) -> str | None:
     return None
 
 
-def main() -> None:
+def main(argv: list[str] | None = None, model: Any = None) -> None:
     parser = argparse.ArgumentParser(description="Extract audio and create timestamped Qwen3-ASR transcripts.")
     parser.add_argument("--source-root", type=Path, default=SOURCE_ROOT)
     parser.add_argument("--source-file", type=Path, help="只处理指定的单个媒体文件；用于 WebUI 单任务")
@@ -491,7 +491,7 @@ def main() -> None:
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--keep-audio", action="store_true", help="额外保存 16kHz 单声道 FLAC")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if not args.source_root.exists():
         raise SystemExit(f"来源目录不存在: {args.source_root}")
@@ -517,7 +517,6 @@ def main() -> None:
         start_index = args.offset + 1
     print(f"音视频总数={len(paths)}，已有音轨记录={len(records)}，输出={args.output_root}", flush=True)
 
-    model = None
     processed = 0
     for index, path in enumerate(selected, start_index):
         try:

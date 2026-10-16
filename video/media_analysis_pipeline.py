@@ -31,12 +31,26 @@ VISUAL_MODEL_NAME = os.environ.get("MINICPM_MODEL", "MiniCPM-V-4_5-GPTQ")
 ASR_CONTAINER = os.environ.get("ASR_CONTAINER", "vision-asr")
 ASR_MAX_NEW_TOKENS = os.environ.get("ASR_MAX_NEW_TOKENS", "2048")
 ASR_LANGUAGE = os.environ.get("ASR_LANGUAGE", "").strip()
-RELEASE_GPU_AFTER_JOB = os.environ.get("RELEASE_GPU_AFTER_JOB", "1").strip().lower() not in {
+RELEASE_GPU_AFTER_JOB = os.environ.get("RELEASE_GPU_AFTER_JOB", "0").strip().lower() not in {
     "0",
     "false",
     "no",
     "off",
 }
+ASR_EXECUTION_MODE = os.environ.get("ASR_EXECUTION_MODE", "auto")
+if ASR_EXECUTION_MODE not in {"auto", "resident", "sequential"}:
+    raise ValueError("ASR_EXECUTION_MODE 必须为 auto/resident/sequential")
+
+
+def resident_audio_enabled() -> bool:
+    return ASR_EXECUTION_MODE == "resident" or (
+        ASR_EXECUTION_MODE == "auto" and "4.7-1B" in VISUAL_MODEL_NAME
+    )
+
+
+def stop_audio_service() -> None:
+    from app.resident_audio import stop_service
+    stop_service()
 
 
 def run(command: list[str], *, check: bool = True, timeout: int | None = None) -> subprocess.CompletedProcess[str]:
@@ -57,9 +71,10 @@ def stop_visual_service() -> None:
 
 
 def release_visual_service() -> None:
-    print("分析结束：正在停止视觉模型容器并释放 GPU 显存", flush=True)
+    print("分析结束：正在停止视觉与常驻音频容器并释放 GPU 显存", flush=True)
     stop_visual_service()
-    print("视觉模型容器已停止，GPU 显存已释放", flush=True)
+    stop_audio_service()
+    print("视觉与音频模型容器已停止，GPU 显存已释放", flush=True)
 
 
 def ensure_visual_service() -> None:
@@ -69,8 +84,13 @@ def ensure_visual_service() -> None:
 
 
 def run_asr(source: Path, output: Path) -> None:
+    if resident_audio_enabled():
+        from app.resident_audio import analyze
+        analyze(source, output, ASR_LANGUAGE)
+        return
     # ASR and VLM are run sequentially so the same GPU can be used safely.
     # Only the new project's visual container is stopped here.
+    stop_audio_service()
     stop_visual_service()
     if subprocess.run(
         ["docker", "image", "inspect", ASR_IMAGE],
@@ -528,7 +548,9 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
 
     release_gpu_after = RELEASE_GPU_AFTER_JOB if args.release_gpu_after is None else args.release_gpu_after
-    visual_stage_requested = not args.package_only and not args.skip_visual
+    model_stage_requested = not args.package_only and (
+        not args.skip_visual or (not args.skip_asr and resident_audio_enabled())
+    )
     try:
         if not args.package_only:
             if not args.skip_asr:
@@ -545,7 +567,7 @@ def main() -> None:
         for path in paths:
             print(f"已生成：{path}", flush=True)
     finally:
-        if release_gpu_after and visual_stage_requested:
+        if release_gpu_after and model_stage_requested:
             release_visual_service()
 
 

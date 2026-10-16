@@ -45,7 +45,7 @@ from vision_core import (  # noqa: E402
 
 FRAME_INTERVAL_SEC = 1.0
 FRAMES_PER_REQUEST = 5
-RELEASE_GPU_AFTER_JOB = os.environ.get("RELEASE_GPU_AFTER_JOB", "1").strip().lower() not in {
+RELEASE_GPU_AFTER_JOB = os.environ.get("RELEASE_GPU_AFTER_JOB", "0").strip().lower() not in {
     "0",
     "false",
     "no",
@@ -584,9 +584,11 @@ def main() -> None:
         analyze(source, output, args.max_duration or None, args.time_offset)
     finally:
         if release_gpu_after:
-            print("字幕提取结束：正在停止视觉模型容器并释放 GPU 显存", flush=True)
+            print("字幕提取结束：正在释放视觉与常驻音频模型显存", flush=True)
             stop_visual_service()
-            print("视觉模型容器已停止，GPU 显存已释放", flush=True)
+            from app.resident_audio import stop_service as stop_audio_service
+            stop_audio_service()
+            print("视觉与常驻音频模型已停止，GPU 显存已释放", flush=True)
 
 
 if __name__ == "__main__":

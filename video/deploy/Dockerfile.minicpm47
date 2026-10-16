@@ -1,0 +1,14 @@
+# Official vLLM nightly 642c18d64 includes native MiniCPM-V 4.7 support.
+# Build via scripts/build_minicpm47_runtime.sh (downloads and verifies the wheel).
+ARG BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/vllm/vllm-openai:v0.30.0
+FROM ${BASE_IMAGE}
+ARG PIP_INDEX_URL=https://pypi.org/simple
+COPY vllm-0.32.0rc1.dev277+g642c18d64-cp38-abi3-manylinux_2_28_x86_64.whl torch-2.14.0-cp312-cp312-manylinux_2_28_x86_64.whl /tmp/
+RUN uv pip install --system --no-cache --index-url "${PIP_INDEX_URL}" \
+      /tmp/vllm-0.32.0rc1.dev277+g642c18d64-cp38-abi3-manylinux_2_28_x86_64.whl \
+      /tmp/torch-2.14.0-cp312-cp312-manylinux_2_28_x86_64.whl \
+      "transformers==5.19.0" \
+    && rm /tmp/vllm-*.whl /tmp/torch-*.whl \
+    && python3 -m pip check
+LABEL org.opencontainers.image.source="https://github.com/vllm-project/vllm" \
+      org.opencontainers.image.revision="642c18d64c4cb6db3ded8fbe1786718cd4005fcb"

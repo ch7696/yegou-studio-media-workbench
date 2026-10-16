@@ -251,6 +251,8 @@ def model_registry_snapshot() -> dict[str, object]:
         item["available"] = available
         item["active"] = str(entry.get("id")) == active_id
         item["model_dir"] = str(model_dir_for(entry)) if available else ""
+        # disabled_reason 表示权重已就位但运行时还无法服务（如等待 vLLM 官方支持）。
+        item["switchable"] = available and not entry.get("disabled_reason")
         models.append(item)
     return {
         "default": registry.get("default"),
@@ -350,7 +352,7 @@ def _model_restart_worker() -> None:
 
 
 def _model_release_worker() -> None:
-    """Stop only the vLLM container so the WebUI process stays online."""
+    """Release this project's visual and resident audio models; keep WebUI online."""
 
     global MODEL_RESTART_THREAD
     try:
@@ -375,6 +377,9 @@ def _model_release_worker() -> None:
             _append_model_restart_log("视觉模型容器已停止，GPU 显存已释放。")
         else:
             _append_model_restart_log("视觉模型容器当前未运行，GPU 显存已经处于释放状态。")
+        from resident_audio import stop_service as stop_audio_service
+        stop_audio_service()
+        _append_model_restart_log("常驻 ASR 与 ForcedAligner 已停止。")
         with MODEL_RESTART_LOCK:
             MODEL_RESTART_STATE["status"] = "released"
             MODEL_RESTART_STATE["message"] = "显存已释放，WebUI 保持在线"
@@ -1355,8 +1360,8 @@ HTML = """<!doctype html>
         </div>
         <p class="small">例如填写 20 和 40，只分析原视频的 00:20–00:40。截取片段内的报告时间码从 00:00 重新计时，任务信息中会保留原视频区间。</p>
         <label class="release-option" for="release-gpu">
-          <input id="release-gpu" type="checkbox" checked>
-          <span><strong>分析完成后释放显存</strong><small id="release-help">默认停止 MiniCPM-V 容器，释放 GPU；取消勾选可保留热模型以加快下一次任务。</small></span>
+          <input id="release-gpu" type="checkbox">
+          <span><strong>分析完成后释放显存</strong><small id="release-help">默认保留模型以加快连续分析；勾选后停止视觉、ASR 与时间对齐模型，释放显存。</small></span>
         </label>
         <button id="start" type="submit">开始分析</button>
       </form>
@@ -1686,11 +1691,11 @@ HTML = """<!doctype html>
         ? "批量模式不使用时间区间设置，每个视频都会从 00:00 分析到结尾。"
         : "开始秒留空按 0 处理，结束秒留空按视频结尾处理。长视频会分批执行，页面显示的是阶段级大概进度。";
       releaseHelp.textContent = batchMode
-        ? "批量任务会在全部视频完成后统一释放显存；取消勾选可保留热模型。"
-        : "默认停止 MiniCPM-V 容器，释放 GPU；取消勾选可保留热模型以加快下一次任务。";
+        ? "默认保留热模型；勾选后在全部视频完成时统一释放视觉与音频模型显存。"
+        : "默认保留模型以加快下一次任务；勾选后释放视觉、ASR 与时间对齐模型显存。";
       gpuNote.textContent = subtitle
         ? (batchMode ? "批量字幕任务逐个调用 MiniCPM-V，单个失败不会中断队列。" : "字幕模式只调用 MiniCPM-V，不启动 ASR，完成后可释放显存。")
-        : (batchMode ? "批量任务按顺序切换 ASR 与视觉模型，避免多个大模型同时占用显存。" : "模型按 ASR → 视觉 → 整理顺序切换，尽量避免多个大模型同时占用显存。");
+        : (batchMode ? "批量任务逐项执行；1B 模式复用常驻 ASR、时间对齐和视觉模型。" : "按 ASR → 视觉 → 整理顺序分析；1B 模式保持三个模型常驻，减少重复加载。");
       modeHelp.textContent = subtitle
         ? (batchMode ? "逐项读取画面字幕 · 输出 JSON / SRT / VTT" : "画面字幕 · JSON / SRT / VTT")
         : (batchMode ? "逐项处理视觉、ASR、对齐与导演拉片" : "视觉、ASR、对齐与导演拉片");
@@ -2241,9 +2246,10 @@ HTML = """<!doctype html>
       const busyNow = state.status === "starting" || state.status === "releasing";
       list.innerHTML = models.map(function(item) {
         const badges = (item.active ? '<span class="model-registry-badge active">当前</span>' : "")
-          + (item.available ? "" : '<span class="model-registry-badge missing">未下载</span>');
-        const disabled = item.active || !item.available || busyNow;
-        const buttonText = item.active ? "使用中" : (item.available ? "切换到此模型" : "未下载");
+          + (item.available ? "" : '<span class="model-registry-badge missing">未下载</span>')
+          + (item.disabled_reason && item.available ? '<span class="model-registry-badge missing">待官方支持</span>' : "");
+        const disabled = item.active || !item.switchable || busyNow;
+        const buttonText = item.active ? "使用中" : (item.switchable ? "切换到此模型" : (item.available ? "待官方支持" : "未下载"));
         return '<div class="model-registry-item' + (item.active ? " is-active" : "") + '">'
           + '<div class="model-registry-copy"><strong>' + registryEsc(item.display_name || item.id) + '</strong>'
           + '<span>' + registryEsc(item.notes || item.size_note || "") + '</span></div>'
@@ -3332,6 +3338,8 @@ def stop_visual_service() -> None:
         )
     except (OSError, subprocess.SubprocessError):
         return
+    from resident_audio import stop_service as stop_audio_service
+    stop_audio_service()
 
 
 def finish_batch_item(batch_id: str, job_id: str) -> None:
@@ -3792,6 +3800,15 @@ class Handler(BaseHTTPRequestHandler):
                         409,
                     )
                     return
+                if entry.get("disabled_reason"):
+                    self.send_json(
+                        {
+                            "error": f"该模型暂不可切换：{entry.get('disabled_reason')}",
+                            "registry": model_registry_snapshot(),
+                        },
+                        409,
+                    )
+                    return
                 with JOBS_LOCK:
                     active_jobs = [dict(job) for job in JOBS.values() if job.get("status") == "running"]
                 if active_jobs or ANALYSIS_LOCK.locked():
@@ -3854,7 +3871,7 @@ class Handler(BaseHTTPRequestHandler):
             raw_start = query.get("start_sec", [""])[0].strip()
             raw_end = query.get("end_sec", [""])[0].strip()
             mode = query.get("mode", ["director"])[0].strip().lower()
-            raw_release = query.get("release_gpu", ["1"])[0].strip().lower()
+            raw_release = query.get("release_gpu", ["0"])[0].strip().lower()
             release_gpu_after = raw_release not in {"0", "false", "no", "off"}
             if mode not in {"director", "subtitle"}:
                 raise ValueError("分析模式无效")

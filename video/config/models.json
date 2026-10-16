@@ -41,10 +41,12 @@
       "model_link": "models/MiniCPM-V-4.7-1B",
       "served_name": "MiniCPM-V-4.7-1B",
       "hf_repo": "openbmb/MiniCPM-V-4.7-1B",
-      "size_note": "约 2.5GB · 1B 级",
-      "notes": "最新一代端侧模型（2026-10 发布），轻量场景候选",
-      "vllm_args": {"max_model_len": 32768, "gpu_memory_utilization": 0.85, "max_images": 8},
-      "extra_args": ["--trust-remote-code"]
+      "size_note": "约 3.1GB · 1B 级 · 权重已就位",
+      "notes": "vLLM 原生支持；启用编译与 CUDA Graph，5 张连续高清帧，默认关闭思考输出",
+      "vllm_args": {"max_model_len": 16384, "gpu_memory_utilization": 0.4, "max_images": 5, "max_videos": 0, "enforce_eager": false},
+      "image": "yegou-vllm:minicpm47-642c18d64",
+      "runtime_cache_dir": "~/.cache/minicpm-v47",
+      "extra_args": ["--default-chat-template-kwargs", "{\"enable_thinking\":false}"]
     }
   ]
 }

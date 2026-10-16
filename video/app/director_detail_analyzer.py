@@ -7,6 +7,7 @@ import argparse
 import base64
 import json
 import math
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -14,6 +15,13 @@ from pathlib import Path
 import requests
 
 from vision_core import MODEL_CONTAINER, MODEL_NAME, MODEL_URL, decodable_video_duration, ffprobe, fmt_time, metadata, number, sha256
+
+
+PROMPT_PROFILE = os.environ.get(
+    "DIRECTOR_PROMPT_PROFILE", "evidence-v1" if "4.7-1B" in MODEL_NAME else "legacy"
+)
+if PROMPT_PROFILE not in {"evidence-v1", "legacy"}:
+    raise ValueError("DIRECTOR_PROMPT_PROFILE 必须为 evidence-v1 或 legacy")
 
 
 def run(args: list[str], *, timeout: int = 900, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -38,8 +46,8 @@ def call_visual(images: list[Path], instruction: str, max_tokens: int = 3072) ->
     payload = {
         "model": MODEL_NAME,
         "messages": [{"role": "user", "content": content}],
-        "temperature": 0.25,
-        "top_p": 0.9,
+        "temperature": 0 if PROMPT_PROFILE == "evidence-v1" else 0.25,
+        "top_p": 1 if PROMPT_PROFILE == "evidence-v1" else 0.9,
         "max_tokens": max_tokens,
         "repetition_penalty": 1.06,
     }
@@ -59,23 +67,38 @@ def call_visual(images: list[Path], instruction: str, max_tokens: int = 3072) ->
 
 
 def contact_prompt(start: float, end: float, frame_count: int) -> str:
+    if PROMPT_PROFILE == "evidence-v1":
+        return (
+            f"为导演拉片概括画面证据。这是 {fmt_time(start)}–{fmt_time(end)} 的联系图，"
+            f"5列、{math.ceil(frame_count / 5)}行，只有前{frame_count}格有效；从左到右、从上到下排列，"
+            f"第1格是{start:g}秒，此后每格加1秒，空白格忽略。\n"
+            "用一至两段中文概括主要主体、场景、动作变化，以及明显的画面范围或视角变化。"
+            "只写看得清的整体变化，细小动作和文字留给高清帧；不能把所有格子假定为一个连续镜头。"
+            "不判断人物身份、心理、声音或画外事件，不为每格编动作。稳定场景只写一次。"
+            "不要时间码、逐格列表、标题或JSON，最多200字。"
+        )
     times = "、".join(f"第{i + 1}格={start + i:.0f}秒" for i in range(frame_count))
-    return f"""你在做导演拉片，不是在写绘图提示词。这是一张 {start:.0f}–{end:.0f} 秒的 5×4 联系图，每格是一秒一帧，时间顺序从左到右、从上到下；时间依次为：{times}。
+    return f"""你在做导演拉片，不是在写绘图提示词。这是一张 {start:.0f}–{end:.0f} 秒的 5×{math.ceil(frame_count / 5)} 联系图，共 {frame_count} 张有效画面，每格是一秒一帧，时间顺序从左到右、从上到下；时间依次为：{times}。输出的所有时间码必须落在 {fmt_time(start)}–{fmt_time(end)} 范围内，不得扩展到片段之外。
 
 请把所有画面当作一个连续镜头来观察，先概括这一段画面正在完成什么，再按照真正发生变化的节点分段叙述。不要逐格输出，不要 JSON，不要字段表，不要关键词堆叠。相邻画面没有变化时必须合并成一个时间段，并明确说明镜头保持了什么。最多写 4 个变化段；没有新变化就不要继续重复。
 
 每个变化段必须写清：主体在画面的哪一侧/哪一高度/前中后景，人物或物体做了什么、向哪个方向运动，背景和道具具体有什么，镜头是何种景别/机位/构图/运动，光色和画面文字有哪些，以及这一变化如何承接前后镜头。方位使用“画面左/右/上/下、左中/正中/右中、前景/中景/背景”，不要凭空编造人物身份、地点和意图。看不清就说无法确认。
 
-只输出这一段的拉片正文，每段开头写近似时间码，例如“00:06–00:11”。完成后立即结束，不要为了凑长度重复静态内容。"""
+只输出这一段的拉片正文，每段开头写当前片段内的近似时间码；当前片段的完整范围是“{fmt_time(start)}–{fmt_time(end)}”。完成后立即结束，不要为了凑长度重复静态内容。"""
 
 
 def detail_prompt(start: float, end: float, times: list[float]) -> str:
+    if PROMPT_PROFILE == "evidence-v1":
+        mapping = "、".join(f"第{i + 1}张={t:g}秒" for i, t in enumerate(times))
+        return f"""为导演拉片记录画面证据。这{len(times)}张图按先后排列：{mapping}。
+用一段简洁中文，先说明主体、所在位置及主要场景，再描述起始姿态、可见动作和最后状态。画面范围或视角有明显变化时再补充前后差异；没有证据不要判断推镜、拉镜或切镜，不把人物在画面中变大直接说成向前走。
+重点写变化，稳定背景只交代一次；保留关键道具和确实可辨的文字。不要猜声音、心理、身份、品牌型号或动作意图，不写评价或气氛感想。看不清就省略，不能为了完整而补动作。不要时间码、标题、逐帧列表或JSON，最多180字。"""
     mapping = "、".join(f"第{i + 1}张={t:.0f}秒" for i, t in enumerate(times))
-    return f"""你在做导演拉片。这是视频 {start:.0f}–{end:.0f} 秒内的 {len(times)} 张连续高清帧，按发送顺序排列，时间对应：{mapping}。
+    return f"""你在做导演拉片。这是视频 {start:.0f}–{end:.0f} 秒内的 {len(times)} 张连续高清帧，按发送顺序排列，时间对应：{mapping}。输出的所有时间码必须落在 {fmt_time(start)}–{fmt_time(end)} 范围内，不得扩展到片段之外。
 
 请把这几张高清帧当作一个连续短镜头来观察，不要一张图写一句话。先判断开头和结尾的状态，只在确实发生变化的地方展开；如果连续帧没有变化，只写一次并合并时间范围。用连续中文文字说明：变化发生在哪个方位，人物/动物/物体如何移动，动作的方向、幅度和前后状态，必要时再补充背景层次、道具、可读文字、材质、光线、色彩、景别、机位、构图和镜头运动。
 
-如果多张帧之间没有新的可见变化，就合并时间范围并只说明一次“画面基本保持不变”。不能用“发生了明显变化”代替具体变化，必须写清楚前后差异。不要 JSON、不要字段列表、不要画面提示词式形容词，不要猜身份和地点。每个段落开头写近似时间码，例如“00:20–00:23”，只输出拉片正文，完成后立即结束。"""
+如果多张帧之间没有新的可见变化，就合并时间范围并只说明一次“画面基本保持不变”。不能用“发生了明显变化”代替具体变化，必须写清楚前后差异。不要 JSON、不要字段列表、不要画面提示词式形容词，不要猜身份和地点。每个段落开头写当前片段内的近似时间码；当前片段的完整范围是“{fmt_time(start)}–{fmt_time(end)}”。只输出拉片正文，完成后立即结束。"""
 
 
 def make_sheet(remote_frames: str, remote_sheet: str, start_sec: float, frame_count: int, columns: int, tile_w: int, tile_h: int) -> None:
@@ -129,6 +152,23 @@ def frame_indices_for_interval(start_sec: float, end_sec: float, total_frames: i
 
 def analyze(source: Path, output: Path, max_duration: float | None = None) -> None:
     output.mkdir(parents=True, exist_ok=True)
+    (output / "视觉分析配置.json").write_text(
+        json.dumps(
+            {
+                "model": MODEL_NAME,
+                "prompt_profile": PROMPT_PROFILE,
+                "temperature": 0 if PROMPT_PROFILE == "evidence-v1" else 0.25,
+                "sampling_fps": 1,
+                "detail_group_seconds": 5,
+                "context_group_seconds": 20,
+                "frame_size": "original",
+                "time_boundary_source": "code",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n",
+        encoding="utf-8",
+    )
     frames_dir = output / "01_每秒高清帧"
     context_dir = output / "02_20秒联系图"
     text_dir = output / "03_模型文字分析"
@@ -188,6 +228,8 @@ def analyze(source: Path, output: Path, max_duration: float | None = None) -> No
             "\n".join(
                 [
                     f"- 视频：`{source.name}`",
+                    f"- 视觉模型：`{MODEL_NAME}`；提示词配置：`{PROMPT_PROFILE}`",
+                    "- 时间精度：每秒采样，文档范围由程序标记；描述中的动作不等于逐帧定位的精确事件。",
                     f"- SHA256：`{source_hash}`",
                     f"- 容器声明时长：{fmt_time(declared)}",
                     f"- 可解码时长：{fmt_time(actual or declared)}",
@@ -229,7 +271,7 @@ def analyze(source: Path, output: Path, max_duration: float | None = None) -> No
             make_sheet(remote_frames, context_sheet_remote, slice_start, frame_count, 5, 320, 180)
             docker_cp(f"{MODEL_CONTAINER}:{context_sheet_remote}", str(context_sheet_local))
             try:
-                context_text = call_visual([context_sheet_local], contact_prompt(slice_start, slice_end, frame_count), max_tokens=4096)
+                context_text = call_visual([context_sheet_local], contact_prompt(slice_start, slice_end, frame_count), max_tokens=512 if PROMPT_PROFILE == "evidence-v1" else 4096)
             except Exception as exc:
                 context_text = f"（上下文模型调用失败：{type(exc).__name__}: {exc}）"
             context_file = text_dir / f"上下文_{slice_id:02d}_{fmt_time(slice_start).replace(':', '-')}-{fmt_time(slice_end).replace(':', '-')}.md"
@@ -258,14 +300,20 @@ def analyze(source: Path, output: Path, max_duration: float | None = None) -> No
                 detail_file = text_dir / f"细节_{slice_id:02d}_{detail_id:02d}_{fmt_time(detail_start).replace(':', '-')}-{fmt_time(detail_end).replace(':', '-')}.md"
                 fallback_local: Path | None = None
                 try:
-                    detail_text = call_visual(selected, detail_prompt(detail_start, detail_end, times), max_tokens=3072)
+                    detail_text = call_visual(selected, detail_prompt(detail_start, detail_end, times), max_tokens=384 if PROMPT_PROFILE == "evidence-v1" else 3072)
                 except Exception as first_exc:
                     fallback_remote = f"{remote_sheets}/detail_{slice_id:02d}_{detail_id:02d}.jpg"
                     fallback_local = context_dir / f"细节联系图_{slice_id:02d}_{detail_id:02d}_{fmt_time(detail_start).replace(':', '-')}-{fmt_time(detail_end).replace(':', '-')}.jpg"
                     make_sheet(remote_frames, fallback_remote, detail_start, len(selected), 3, 640, 360)
                     docker_cp(f"{MODEL_CONTAINER}:{fallback_remote}", str(fallback_local))
                     try:
-                        detail_text = call_visual([fallback_local], detail_prompt(detail_start, detail_end, times), max_tokens=3072)
+                        fallback_prompt = detail_prompt(detail_start, detail_end, times)
+                        if PROMPT_PROFILE == "evidence-v1":
+                            fallback_prompt = (
+                                f"以下只有一张3列联系图，前{len(times)}格有效，从左到右、从上到下依次对应原始帧，空白格忽略。\n"
+                                + fallback_prompt
+                            )
+                        detail_text = call_visual([fallback_local], fallback_prompt, max_tokens=384 if PROMPT_PROFILE == "evidence-v1" else 3072)
                     except Exception as second_exc:
                         detail_text = f"（细节模型调用失败：{type(first_exc).__name__}: {first_exc}; fallback {type(second_exc).__name__}: {second_exc}）"
                 detail_file.write_text(detail_text + "\n", encoding="utf-8")
