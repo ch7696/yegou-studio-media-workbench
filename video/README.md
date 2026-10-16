@@ -104,6 +104,25 @@ agent 可读取 `03_代码综合时间线.md` 继续分析；`04_最终导演分
 `--timeout` 限制轮询等待时间（不含上传，每次 HTTP 请求超时 60 秒）。
 仅在明确需要释放三个模型时添加 `--release-gpu`。
 
+工具命令同样返回 JSON，模型操作默认等待完成：
+
+```bash
+python3 agent_cli.py model-status       # 最近模型操作、模型注册表、显存和活动任务
+python3 agent_cli.py queue              # 当前任务和排队列表
+python3 agent_cli.py release            # 停止本项目视觉、ASR、对齐模型，WebUI 保持在线
+python3 agent_cli.py restart            # 重启视觉模型；常驻策略启用时加载 ASR 和对齐模型
+python3 agent_cli.py restart --no-wait  # 后台启动，用 model-status 查看操作结果
+python3 agent_cli.py retry JOB_ID       # 复用服务端原视频、模式和区间，创建新任务并等待
+python3 agent_cli.py retry JOB_ID --no-wait
+```
+
+`release` / `restart` 同样支持 `--timeout` 和 `--poll-interval`，超时不会终止后台操作。
+`model-status` 的 `model.status` 是最近一次管理操作的状态，并非实时容器健康检查。
+运行中的任务会限制模型操作，服务端拒绝时 CLI 返回 JSON 错误和退出码 2。
+`retry` 仅允许已完成、失败或取消的任务；原上传必须仍在服务端，旧任务与产物保持不变，
+返回的新任务含 `retry_of`。重试使用当前选中的视觉模型，默认保持常驻，
+可添加 `--release-gpu` 要求新任务结束后释放。批量中的单项重试会成为独立任务。
+
 ## MiniCPM-V 4.7-1B
 
 4.7 需要包含原生适配的 vLLM 开发版。当前注册表绑定官方构建

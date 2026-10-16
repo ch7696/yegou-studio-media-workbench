@@ -44,7 +44,17 @@ def parser() -> argparse.ArgumentParser:
     status.add_argument("job_id")
     wait = commands.add_parser("wait", help="wait for an existing job")
     wait.add_argument("job_id")
-    for command in (analyze, wait):
+    retry = commands.add_parser("retry", help="resubmit a finished job using the server's saved upload")
+    retry.add_argument("job_id")
+    retry.add_argument("--no-wait", action="store_true")
+    retry.add_argument("--release-gpu", action="store_true")
+    release = commands.add_parser("release", help="release this project's visual and audio GPU models")
+    restart = commands.add_parser("restart", help="restart the visual model and load resident audio when enabled")
+    commands.add_parser("model-status", help="show last model operation and GPU/queue state")
+    commands.add_parser("queue", help="show the shared analysis queue")
+    for command in (release, restart):
+        command.add_argument("--no-wait", action="store_true")
+    for command in (analyze, wait, retry, release, restart):
         command.add_argument("--timeout", type=positive, default=7200, help="wait deadline in seconds")
         command.add_argument("--poll-interval", type=positive, default=1)
     return result
@@ -75,7 +85,37 @@ def main() -> int:
         return value
 
     try:
-        if args.command == "analyze":
+        if args.command in {"queue", "model-status"}:
+            state = request("GET", "/api/queue")
+            if args.command == "model-status":
+                state = {"model": request("GET", "/api/model"), "gpu": state["gpu"],
+                         "active_job": state["active_job"], "queue_size": state["queue_size"]}
+            emit(state)
+            return 0
+        if args.command in {"release", "restart"}:
+            state = request("POST", "/api/model/" + args.command)
+            if args.no_wait:
+                emit(state)
+                return 0
+            deadline = time.monotonic() + args.timeout
+            target = "released" if args.command == "release" else "ready"
+            while state["status"] in {"starting", "releasing"}:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    emit(dict(state, cli_error="wait timeout; operation continues on server"))
+                    return 124
+                time.sleep(min(args.poll_interval, remaining))
+                state = request("GET", "/api/model")
+            emit(state)
+            return 0 if state["status"] == target else 1
+        if args.command == "retry":
+            job = request("POST", "/api/jobs/" + quote(args.job_id, safe="") + "/retry",
+                          params={"release_gpu": int(args.release_gpu)})
+            print(f"submitted job_id={job['id']} retry_of={args.job_id}", file=sys.stderr, flush=True)
+            if args.no_wait:
+                emit(output(job))
+                return 0
+        elif args.command == "analyze":
             source = args.source.expanduser().resolve()
             if not source.is_file():
                 raise ValueError(f"视频不存在：{source}")

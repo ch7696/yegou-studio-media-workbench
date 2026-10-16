@@ -334,6 +334,13 @@ def _model_restart_worker() -> None:
             if line:
                 _append_model_restart_log(line)
         return_code = process.wait()
+        if not return_code:
+            from resident_audio import ensure_service
+            env = visual_env()
+            policy = os.environ.get("ASR_EXECUTION_MODE", "auto")
+            if policy == "resident" or (policy == "auto" and "4.7-1B" in env.get("MINICPM_MODEL", "")):
+                _append_model_restart_log("正在加载常驻 ASR 与 ForcedAligner。")
+                ensure_service()
         with MODEL_RESTART_LOCK:
             if return_code:
                 MODEL_RESTART_STATE["status"] = "failed"
@@ -3861,6 +3868,40 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": str(exc)}, 400)
             return
         is_batch = parsed.path == "/api/batches"
+        retry_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/retry", parsed.path)
+        if retry_match:
+            previous_id = retry_match.group(1)
+            with JOBS_LOCK:
+                previous = _job_from_state(previous_id)
+                previous = dict(previous) if previous else None
+            if not previous:
+                self.send_json({"error": "任务不存在"}, 404)
+                return
+            if previous.get("status") not in {"done", "failed", "cancelled"}:
+                self.send_json({"error": "任务仍在排队或运行，不能重复重试"}, 409)
+                return
+            source = Path(previous["source_path"])
+            if not source.is_file():
+                self.send_json({"error": "原始上传文件已不存在，请重新上传"}, 400)
+                return
+            job_id = uuid.uuid4().hex[:12]
+            original = previous["filename"]
+            mode = previous.get("mode", "director")
+            start_sec = previous.get("start_sec", 0.0)
+            end_sec = previous.get("end_sec")
+            release_gpu_after = parse_qs(parsed.query).get("release_gpu", ["0"])[0] == "1"
+            output = output_path_for(original, mode, start_sec, end_sec, job_id)
+            output.mkdir(parents=True, exist_ok=True)
+            job = make_job(job_id, original, source, output, start_sec, end_sec, mode, release_gpu_after)
+            job["retry_of"] = previous_id
+            with JOBS_LOCK:
+                JOBS[job_id] = job
+                save_job_state(job)
+            JOB_QUEUE.put({"job_id": job_id, "source": source, "original": original,
+                           "output": output, "start_sec": start_sec, "end_sec": end_sec,
+                           "mode": mode, "release_gpu_after": release_gpu_after})
+            self.send_json(dict(job), 202)
+            return
         if parsed.path not in {"/api/jobs", "/api/batches"}:
             self.send_json({"error": "Not Found"}, 404)
             return
