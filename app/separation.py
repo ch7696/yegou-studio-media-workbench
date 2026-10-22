@@ -67,6 +67,8 @@ def separate_audio(
     *,
     chunk_seconds: float = SEPARATION_CHUNK_SECONDS,
     overlap_seconds: float = SEPARATION_OVERLAP_SECONDS,
+    load_audio=None,
+    save_audio=None,
 ) -> dict[str, Any]:
     """Separate a mono/stereo mix into vocals and the remaining background.
 
@@ -78,7 +80,7 @@ def separate_audio(
 
     with SEPARATION_LOCK:
         model, device = _get_model()
-        waveform, sample_rate = torchaudio.load(str(source))
+        waveform, sample_rate = (load_audio or torchaudio.load)(str(source))
         if waveform.ndim == 1:
             waveform = waveform.unsqueeze(0)
         if waveform.shape[0] == 1:
@@ -141,8 +143,9 @@ def separate_audio(
 
         vocal_target.parent.mkdir(parents=True, exist_ok=True)
         background_target.parent.mkdir(parents=True, exist_ok=True)
-        torchaudio.save(str(vocal_target), output[0:1], RATE)
-        torchaudio.save(str(background_target), output[1:2], RATE)
+        writer = save_audio or torchaudio.save
+        writer(str(vocal_target), output[0:1], RATE)
+        writer(str(background_target), output[1:2], RATE)
         return {
             "available": True,
             "model": SEPARATION_MODEL,

@@ -1,0 +1,7 @@
+{
+  "python": "C:/path/to/ComfyUI/.venv/Scripts/python.exe",
+  "comfy_root": "C:/path/to/ComfyUI",
+  "model_root": "G:/models/fishaudioS2",
+  "torch_home": "G:/model-cache/torch",
+  "timeout_seconds": 21600
+}

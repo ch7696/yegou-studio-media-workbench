@@ -1,0 +1,18 @@
+{
+  "id": "hdemucs-fish-s2",
+  "version": 1,
+  "separation_model": "HDEMUCS_HIGH_MUSDB",
+  "background_sources": ["drums", "bass", "other"],
+  "tts_backend": "ComfyUI-FishAudioS2",
+  "tts_model": "s2-pro-bnb-nf4",
+  "precision": "bfloat16",
+  "attention": "sdpa",
+  "compile_model": false,
+  "background_volume": 1.0,
+  "temperature": 0.7,
+  "top_p": 0.7,
+  "repetition_penalty": 1.2,
+  "max_new_tokens": 256,
+  "max_alignment_tempo": 1.55,
+  "seed": 17
+}

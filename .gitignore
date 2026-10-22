@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 .env
 .api-token
+configs/production.local.json
 state/
 uploads/
 speaker-results/

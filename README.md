@@ -1,5 +1,7 @@
 # 野构 Studio · 声像制片台
 
+当前确认的制作方案：**原 HDEMUCS 去人声、保留音乐环境音效 + Fish S2-Pro 配音**。使用 `scripts/yegou production` 或 `scripts/yegou-production.ps1`，配置及复现见 [生产音频方案](docs/PRODUCTION_AUDIO.md)。这是独立的本机生产 CLI；现有 WebUI/HTTP 的 CosyVoice 接口仍保留。BandIt 试验未纳入生产默认。
+
 野构 Studio 声像制片台把媒体处理整理成清晰的流水线：可以先用“自动配字幕”生成并编辑视频字幕，再用时间线配音或按说话人替换视频配音；也可以单独整理说话人音色。项目使用 FastAPI、WSL Docker、Qwen3-ASR、Sortformer、Demucs 和 CosyVoice3。
 
 > **合并说明（2026-10-15）**：本仓库同时承载**音色台**（本 README，7866）与**视频分析台**（`video/` 子目录，7877；原 media-analysis-vision-studio 仓库经 git subtree 并入，提交历史保留）。两个服务独立运行，可用统一启动器一并拉起。

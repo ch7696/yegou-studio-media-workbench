@@ -255,3 +255,6 @@ Docker 引擎需可用，建议启用本机 Docker socket 按需激活。模型�
 python3 -m unittest discover -s tests -p test_agent_gateway.py -v
 docker exec -e YEGOU_GATE_TEST=1 -e VOICE_STATE_DIR=/tmp/yegou-gate-test -e VOICE_DEFAULT_OUTPUT=/tmp/yegou-gate-output ragflow-model-speaker-webui python3 -m unittest discover -s tests -v
 ```
+## 已确认的新配音入口
+
+需要 Fish S2-Pro 时使用 `bash scripts/yegou production status/run/tts/render`。默认去人声继续使用 HDEMUCS_HIGH_MUSDB，保留音乐和环境音效；BandIt 不作为生产方案。配置与接口边界见 [PRODUCTION_AUDIO.md](PRODUCTION_AUDIO.md)。原 `dub`/HTTP 仍使用 CosyVoice，不要混淆。

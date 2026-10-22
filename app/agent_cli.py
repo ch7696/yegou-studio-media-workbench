@@ -33,6 +33,10 @@ def main():
     p.add_argument("--url", default=os.environ.get("YEGOU_AGENT_URL", "http://127.0.0.1:7868"))
     p.add_argument("--no-autostart", action="store_true")
     sub = p.add_subparsers(dest="command", required=True)
+    production = sub.add_parser('production', help='Native HDEMUCS + Fish S2-Pro production pipeline')
+    production.add_argument('action', choices=['status', 'run', 'tts', 'render'])
+    production.add_argument('--config')
+    production.add_argument('--runtime')
     workspace = sub.add_parser("workspace")
     workspace.add_argument("action", choices=["init"])
     workspace.add_argument("--root", required=True)
@@ -112,6 +116,13 @@ def main():
     batch.add_argument("--stop-after", action="store_true")
     args = p.parse_args()
     try:
+        if args.command == 'production':
+            from .production import execute
+            if args.action != 'status' and not args.config:
+                raise ValueError('--config is required')
+            result = execute(args.action, args.config, args.runtime)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
         if args.command == 'media':
             from . import agent_media
             ensure_gateway(args)

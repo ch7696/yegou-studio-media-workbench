@@ -1,0 +1,20 @@
+{
+  "workspace": "C:/media/project/agent_work",
+  "input": "C:/media/project/source.mp4",
+  "references": {
+    "speaker_1": {
+      "audio": "C:/media/project/agent_work/03_voices/speaker_1.wav",
+      "text": "与参考音频完全一致的台词。"
+    }
+  },
+  "segments": [
+    {
+      "speaker_id": "speaker_1",
+      "start_sec": 1.0,
+      "end_sec": 3.0,
+      "text": "包在我身上！",
+      "tts_text": "[excited]包在我身上！"
+    }
+  ],
+  "burn_subtitles": true
+}
