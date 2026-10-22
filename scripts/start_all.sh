@@ -28,6 +28,7 @@ fi
 
 if curl -fsS --max-time 2 http://127.0.0.1:7866/api/health >/dev/null 2>&1; then
   echo "[YEGOU] 音色台已在运行（7866）。"
+  bash "$REPO_ROOT/scripts/open_agent_workbench.sh"
 else
   echo "[YEGOU] 启动音色台（7866）…"
   bash "$REPO_ROOT/scripts/start_webui_background.sh"

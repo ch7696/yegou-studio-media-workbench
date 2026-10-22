@@ -16,6 +16,6 @@ if ! cd "$repo_root"; then
     exit 1
 fi
 
-nohup bash ./scripts/run_webui.sh >>"$log_file" 2>&1 < /dev/null &
+nohup bash ./scripts/open_agent_workbench.sh >>"$log_file" 2>&1 < /dev/null &
 printf '[YEGOU] WebUI process started: %s\n' "$!" >> "$log_file"
 exit 0

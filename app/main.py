@@ -8,13 +8,14 @@ import mimetypes
 import re
 import shutil
 import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 import torch
 
@@ -29,13 +30,16 @@ from .config import (
     DIRECT_TTS_UPLOADS,
     DIRECT_TTS_WORK,
     DUBBING_UPLOADS,
+    DUBBING_JOBS,
     DUBBING_WORK,
     ENVIRONMENT_UPLOADS,
+    ENVIRONMENT_JOBS,
     GITHUB_REPOSITORY_URL,
     MANIFESTS,
     MODEL_DIR,
     RESULTS,
     SUBTITLE_UPLOADS,
+    SUBTITLE_JOBS,
     UPLOADS,
     ensure_directories,
 )
@@ -45,6 +49,7 @@ from .reference import prepare_reference
 from .schemas import (
     DubbingGenerateRequest,
     DubbingTimelineSaveRequest,
+    ScriptImportRequest,
     SubtitleSaveRequest,
     TtsModelSwitchRequest,
     TTSGenerateRequest,
@@ -57,6 +62,123 @@ ensure_directories()
 app = FastAPI(title="野构 Studio 声像制片台")
 MEMORY_RELEASE_LOCK = threading.Lock()
 MODEL_SWITCH_LOCK = threading.Lock()
+SERVICE_GATE_LOCK = threading.RLock()
+SERVICE_DRAINING = False
+SERVICE_REQUESTS = 0
+SERVICE_LEASE = ""
+SERVICE_LEASE_UNTIL = 0.0
+
+
+@app.on_event("startup")
+def recover_interrupted_media_jobs():
+    """Old daemon threads cannot survive a process restart; expose that explicitly."""
+    for directory in (DUBBING_JOBS, ENVIRONMENT_JOBS, SUBTITLE_JOBS):
+        for path in directory.glob("*.json"):
+            try:
+                job = json.loads(path.read_text(encoding="utf-8"))
+                changed = False
+                if job.get("status") not in {"done", "failed"}:
+                    job.update(status="failed", error="工作台重启，原任务已中断，可重新提交或由 agent retry 恢复")
+                    changed = True
+                if job.get("render_status") in {"running", "queued"}:
+                    job.update(render_status="failed", render_error="工作台重启，渲染已中断")
+                    changed = True
+                if changed:
+                    temp = path.with_suffix(".recovery.tmp")
+                    temp.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
+                    temp.replace(path)
+            except (OSError, ValueError):
+                # A corrupt legacy record must not stop the whole service booting.
+                continue
+
+
+@app.middleware("http")
+async def service_gate(request, call_next):
+    """Atomically refuse new work once the host requests an idle shutdown."""
+    global SERVICE_REQUESTS, SERVICE_LEASE_UNTIL
+    tracked = request.method not in {"GET", "HEAD", "OPTIONS"} and request.url.path not in {
+        "/api/system/drain", "/api/system/undrain", "/api/system/lease", "/api/system/lease/release",
+    }
+    with SERVICE_GATE_LOCK:
+        leased = bool(SERVICE_LEASE and SERVICE_LEASE_UNTIL > time.monotonic())
+        owner = leased and request.headers.get("X-Yegou-Lease") == SERVICE_LEASE
+        if owner:
+            SERVICE_LEASE_UNTIL = time.monotonic() + 600
+        if tracked and leased and not owner:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "agent 正在执行完整制片任务，请等待结束"}, status_code=409)
+        if tracked and SERVICE_DRAINING:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "服务准备关闭；请通过 agent service start 唤起"}, status_code=503)
+        if tracked and not _service_activity()["idle"]:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "已有媒体任务运行，请等待完成后再提交"}, status_code=409)
+        if tracked:
+            SERVICE_REQUESTS += 1
+    try:
+        return await call_next(request)
+    finally:
+        if tracked:
+            with SERVICE_GATE_LOCK:
+                SERVICE_REQUESTS -= 1
+
+
+def _service_activity():
+    prefixes = ("dubbing-analysis-", "dubbing-generation-", "subtitle-", "environment-audio-", "timeline-dubbing-")
+    workers = [t.name for t in threading.enumerate() if t.name.startswith(prefixes) and t.is_alive()]
+    busy = SERVICE_REQUESTS or workers or tts.TTS_LOCK.locked() or separation.SEPARATION_LOCK.locked()
+    return {"idle": not bool(busy), "requests": SERVICE_REQUESTS, "workers": workers,
+            "draining": SERVICE_DRAINING,
+            "leased": bool(SERVICE_LEASE and SERVICE_LEASE_UNTIL > time.monotonic())}
+
+
+@app.post("/api/system/lease")
+def service_lease():
+    global SERVICE_LEASE, SERVICE_LEASE_UNTIL
+    with SERVICE_GATE_LOCK:
+        activity = _service_activity()
+        if not activity["idle"] or activity["leased"] or SERVICE_DRAINING:
+            raise HTTPException(status_code=409, detail="工作台忙碌或已有 agent 持有任务")
+        SERVICE_LEASE = uuid.uuid4().hex
+        SERVICE_LEASE_UNTIL = time.monotonic() + 600
+        return {"token": SERVICE_LEASE}
+
+
+@app.post("/api/system/lease/release")
+def service_lease_release(request: Request):
+    global SERVICE_LEASE, SERVICE_LEASE_UNTIL
+    with SERVICE_GATE_LOCK:
+        if request.headers.get("X-Yegou-Lease") != SERVICE_LEASE:
+            raise HTTPException(status_code=409, detail="任务租约不匹配")
+        SERVICE_LEASE = ""
+        SERVICE_LEASE_UNTIL = 0
+        return {"ok": True}
+
+
+@app.get("/api/system/activity")
+def service_activity():
+    with SERVICE_GATE_LOCK:
+        return _service_activity()
+
+
+@app.post("/api/system/drain")
+def service_drain():
+    global SERVICE_DRAINING
+    with SERVICE_GATE_LOCK:
+        activity = _service_activity()
+        if activity["leased"]:
+            activity["idle"] = False
+        if activity["idle"]:
+            SERVICE_DRAINING = True
+        return {**activity, "draining": SERVICE_DRAINING}
+
+
+@app.post("/api/system/undrain")
+def service_undrain():
+    global SERVICE_DRAINING
+    with SERVICE_GATE_LOCK:
+        SERVICE_DRAINING = False
+    return {"ok": True}
 
 
 def _memory_status() -> dict[str, Any]:
@@ -553,6 +675,15 @@ def save_dubbing_timeline(job_id: str, request: DubbingTimelineSaveRequest) -> d
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"时间轴暂存失败：{exc}") from exc
+
+
+@app.post("/api/dubbing/jobs/{job_id}/script")
+def import_dubbing_script(job_id: str, request: ScriptImportRequest) -> dict[str, Any]:
+    try:
+        return dubbing.import_script(job_id, [s.model_dump() for s in request.speakers],
+                                     [s.model_dump() for s in request.segments])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/dubbing/jobs/{job_id}/speakers/{speaker_id}/reference")

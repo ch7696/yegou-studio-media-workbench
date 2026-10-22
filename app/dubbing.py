@@ -1016,6 +1016,39 @@ def get_timeline(job_id: str) -> dict[str, Any]:
     return timeline
 
 
+def import_script(job_id: str, speakers: list[dict[str, Any]], cues: list[dict[str, Any]]) -> dict[str, Any]:
+    """Replace uncertain ASR splits with a validated, explicitly timed production script."""
+    with JOBS_LOCK:
+        job, timeline = _load_timeline(job_id)
+        if job.get("status") != "done":
+            raise ValueError("仅可对已完成的分析任务导入剧本")
+        ids = [s["speaker_id"] for s in speakers]
+        if len(set(ids)) != len(ids):
+            raise ValueError("说话人编号重复")
+        labels = {s["speaker_id"]: s["speaker_label"] for s in speakers}
+        segments = []
+        for i, cue in enumerate(cues, 1):
+            if cue["speaker_id"] not in labels:
+                raise ValueError("剧本片段引用了不存在的角色")
+            if not 0 <= cue["start_sec"] < cue["end_sec"] <= float(timeline["duration_sec"]) + .1:
+                raise ValueError("剧本片段时间无效或超出视频时长")
+            if not cue["text"].strip():
+                raise ValueError("剧本台词不能为空")
+            segments.append(dict(cue, segment_id=f"seg_{i:04d}", dubbing_text=cue["text"],
+                                 speaker_label=labels[cue["speaker_id"]], speaker_confidence=1,
+                                 overlap=False, original_duration_sec=cue["end_sec"]-cue["start_sec"]))
+        if any(b["start_sec"] < a["end_sec"] for a, b in zip(segments, segments[1:])):
+            raise ValueError("剧本片段需按时间排序且不重叠")
+        timeline.setdefault("original_analysis", {"segments": timeline["segments"], "speakers": timeline["speakers"]})
+        timeline.update(segments=segments, speakers=speakers, script_imported=True)
+        timeline["updated_at"] = _now()
+        path = Path(str(job["timeline_path"]))
+        save_json(path, timeline)
+        shutil.copy2(path, Path(str(job["output_path"])) / "时间轴.json")
+        _update_job(job_id, speaker_count=len(speakers), segment_count=len(segments))
+        return {"ok": True, "job_id": job_id, "segment_count": len(segments), "timeline": timeline}
+
+
 def save_timeline_edits(job_id: str, edits: list[dict[str, Any]]) -> dict[str, Any]:
     """Persist editor changes before a generation job is queued."""
 
@@ -1404,6 +1437,10 @@ def _mux_video(source: Path, voice_track: Path, target: Path) -> Path | None:
         "48000",
         "-map_metadata",
         "0",
+        # The extracted/cleaned audio can end before the last video frame.
+        # Pad it with silence so -shortest follows the video, preserving its tail.
+        "-af",
+        "apad",
         "-shortest",
         "-movflags",
         "+faststart",

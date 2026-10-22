@@ -149,6 +149,17 @@ CosyVoice2 示例中的 `add_zero_shot_spk` 缓存调用没有套用到 CosyVoic
 
 ## 接口
 
+### Agent 全自动配音与按需启停
+
+新增独立的轻量控制服务（7868）和 JSON CLI：统一管理视频分析、多说话人音色映射、原音轨移除/背景保留、配音导出、质量检查、持久任务队列、幂等提交、失败恢复、批处理，以及模型容器的启动、显存释放和空闲关闭。
+
+完整参数、Windows/WSL 命令和 HTTP 接口见 [Agent 接入与运维指南](docs/AGENT_RUNBOOK.md)。CLI 首次运行自动启动控制服务，模型按任务启动，默认空闲 5 分钟关闭。
+
+```bash
+bash scripts/yegou voices add --id narrator --reference /mnt/f/voice/reference.wav
+bash scripts/yegou dub --input /mnt/f/video.mp4 --voice narrator --background remove --wait --stop-after
+```
+
 - `POST /api/analyze`：只做识别和资产生成。
 - `POST /api/tts/generate`：只对已有说话人资产生成试音。
 - `POST /api/tts/direct`：上传参考音频或视频，直接生成 TTS。

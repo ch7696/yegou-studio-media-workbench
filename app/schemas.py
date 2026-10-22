@@ -61,6 +61,23 @@ class DubbingTimelineSaveRequest(BaseModel):
     edits: list[DubbingSegmentEdit] = Field(default_factory=list)
 
 
+class ScriptSpeaker(BaseModel):
+    speaker_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,80}$")
+    speaker_label: str = Field(min_length=1, max_length=80)
+
+
+class ScriptCue(BaseModel):
+    speaker_id: str = Field(min_length=1, max_length=80)
+    start_sec: float = Field(ge=0)
+    end_sec: float = Field(gt=0)
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class ScriptImportRequest(BaseModel):
+    speakers: list[ScriptSpeaker] = Field(min_length=1, max_length=20)
+    segments: list[ScriptCue] = Field(min_length=1, max_length=2000)
+
+
 class SubtitleCueEdit(BaseModel):
     """Editable fields for one automatically generated subtitle cue."""
 
